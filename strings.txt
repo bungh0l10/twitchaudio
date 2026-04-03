@@ -1,0 +1,7 @@
+PLUGIN_TWITCHAUDIO
+    DE  TwitchAudio
+    EN  TwitchAudio
+
+PLUGIN_TWITCHAUDIO_DESCRIPTION
+	DE	SAUFEN!!!! Morgens, Mittags Abends ...
+	EN	Plugin to listen to twitch streams

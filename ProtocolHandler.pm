@@ -1,43 +1,43 @@
 package Plugins::TwitchAudio::ProtocolHandler;
 
 use strict;
-use base qw(Slim::Player::Protocols::HTTPS);
+use warnings;
+
+use base qw(Slim::Player::Protocols::HTTP);
 
 use Slim::Utils::Log;
-use Slim::Utils::Scanner::Remote;
-use Slim::Player::Song;
 use Plugins::TwitchAudio::Twitch;
 
-# Logging
 my $log = Slim::Utils::Log->logger('plugin.twitchaudio');
 
-# Convert twitch://channel into a playable Slim::Player::Song
-sub scanUrl {
-    my ($class, $uri, $args) = @_;
-    my ($channel) = $uri =~ m|twitch://(.+)|;
+sub new {
+    my ($class, $args) = @_;
 
-    $log->debug("scanUrl called for channel: $channel");
+    my $url = $args->{url};
+    my ($channel) = $url =~ m|twitch://(.+)|;
 
-    my $url = Plugins::TwitchAudio::Twitch::getAudioUrl($channel);
-
-    if ($url) {
-        $log->info("Found HLS stream for $channel: $url");
-
-        my $client = $args->{client}->master;
-        Slim::Utils::Scanner::Remote->scanURL($url, $args);
-
-        $client->playingSong->pluginData({
-            icon   => '',
-            cover  => '',
-            artist => "Twitch: $channel",
-            title  => "Live audio"
-        });
-
-        Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
+    unless ($channel) {
+        $log->error("Invalid twitch URL: $url");
+        return;
     }
-    else {
-        $log->warn("No stream available for $channel");
+
+    $channel =~ s/\s+//g;
+    $channel = lc $channel;
+
+    $log->info("Resolving Twitch channel: $channel");
+
+    my $streamUrl = Plugins::TwitchAudio::Twitch::getAudioUrl($channel);
+
+    unless ($streamUrl) {
+        $log->error("No stream URL for $channel");
+        return;
     }
+
+    $log->info("Stream URL resolved: $streamUrl");
+
+    $args->{url} = $streamUrl;
+
+    return $class->SUPER::new($args);
 }
 
 1;

@@ -53,6 +53,7 @@ sub handleFeed {
 sub searchChannel {
     my ($client, $cb, $args, $search) = @_;
 
+    # Playable Song object
     my $song = Slim::Player::Song->new({
         title  => "Play $search",
         url    => "twitch://$search",

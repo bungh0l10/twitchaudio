@@ -4,31 +4,63 @@ use strict;
 use warnings;
 
 use base qw(Slim::Player::Protocols::HTTPS);
+
 use Slim::Utils::Log;
+use Slim::Utils::Scanner::Remote;
 use Plugins::TwitchAudio::Twitch;
 
 my $log = Slim::Utils::Log->logger('plugin.twitchaudio');
 
-sub new {
-    my ($class, $args) = @_;
-    my $url = $args->{url};
+# scanUrl: wandelt twitch://channel in ein spielbares Song-Objekt
+sub scanUrl {
+    my ($class, $uri, $args) = @_;
+    my ($channel) = $uri =~ m|twitch://(.+)|;
 
-    # Already HTTP/HTTPS → direkt abspielen
-    if ($url =~ /^https/) {
-        return $class->SUPER::new($args);
-    }
+    $log->debug("scanUrl called for channel: $channel");
 
-    # twitch://channel → getAudioUrl
-    my ($channel) = $url =~ m|twitch://(.+)|;
-    my $streamUrl = Plugins::TwitchAudio::Twitch::getAudioUrl($channel);
+    # erst Kanalinfo holen
+    Plugins::TwitchAudio::Twitch::getChannel($channel, sub {
+        my ($data) = @_;
+        my $user   = $data->{user} if $data;
+        my $online = $user && $user->{stream} ? 1 : 0;
 
-    unless ($streamUrl) {
-        $log->warn("No stream URL available for $channel");
-        return;
-    }
+        my $title  = $online ? $user->{stream}{title} : "Offline";
+        my $cover  = $user ? $user->{profileImageURL} : "";
+        my $artist = $user ? $user->{login} : $channel;
 
-    $args->{url} = $streamUrl;
-    return $class->SUPER::new($args);
+        my $url;
+        if ($online) {
+            $url = Plugins::TwitchAudio::Twitch::getAudioUrl($artist);
+        }
+
+        unless ($url) {
+            $log->warn("No audio stream available for $artist");
+            return;
+        }
+
+        # Song direkt an Scanner übergeben
+        my $song = {
+            url    => $url,
+            type   => 'audio',
+            artist => $artist,
+            title  => $title,
+            cover  => $cover,
+        };
+
+        # Scanner absetzen, Player bekommt die Metadaten korrekt
+        Slim::Utils::Scanner::Remote->scanURL($url, { %$args, song => $song });
+
+        # Plugin-Daten für Player/Skins setzen
+        my $client = $args->{client};
+        if ($client && $client->playingSong) {
+            $client->playingSong->pluginData({
+                artist => $artist,
+                title  => $title,
+                cover  => $cover,
+            });
+            Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
+        }
+    });
 }
 
 1;

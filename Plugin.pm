@@ -52,6 +52,7 @@ sub searchChannel {
     my ($client, $cb, $args) = @_;
     my $search = $args->{search} || '';
     $search =~ s/^\s+|\s+$//g;
+    $search = lc $search;
 
     return $cb->({ items => [{ name => "Enter a channel name" }] }) unless $search;
 

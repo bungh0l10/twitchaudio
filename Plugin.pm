@@ -1,19 +1,26 @@
 package Plugins::TwitchAudio::Plugin;
 
 use strict;
+use warnings;
+
 use base qw(Slim::Plugin::OPMLBased);
+use Slim::Player::ProtocolHandlers;
+use Slim::Player::Song;
 use Slim::Utils::Prefs;
 use Plugins::TwitchAudio::Twitch;
 
 my $prefs = preferences('plugin.twitchaudio');
 
+# --- Plugin initialization ---
 sub initPlugin {
     my $class = shift;
 
+    # Register Twitch protocol handler
     Slim::Player::ProtocolHandlers->registerHandler(
-        twitch => 'Plugins::TwitchAudio::Plugin'
+        twitch => $class
     );
 
+    # Initialize OPML-based plugin
     $class->SUPER::initPlugin(
         feed   => \&handleFeed,
         tag    => 'twitchaudio',
@@ -22,18 +29,18 @@ sub initPlugin {
     );
 }
 
-# --- Hauptmenü ---
+# --- Main menu ---
 sub handleFeed {
     my ($client, $cb, $args) = @_;
 
     my $items = [
         {
-            name => '🔎 Channel suchen',
+            name => 'Search channel',
             type => 'search',
             url  => \&searchChannel,
         },
         {
-            name => '⭐ Favoriten',
+            name => 'Favorites',
             type => 'link',
             url  => \&listFavorites,
         }
@@ -42,70 +49,70 @@ sub handleFeed {
     $cb->({ items => $items });
 }
 
-# --- Suche ---
+# --- Search channels ---
 sub searchChannel {
     my ($client, $cb, $args, $search) = @_;
 
-    $cb->({
-        items => [
-            {
-                name => "▶ $search",
-                type => 'audio',
-                url  => "twitch://$search",
-            },
-            {
-                name => "⭐ Zu Favoriten hinzufügen",
-                type => 'link',
-                url  => sub {
-                    addFavorite($search);
-                    $cb->({ items => [{ name => "Gespeichert ✔" }] });
-                }
-            }
-        ]
+    my $song = Slim::Player::Song->new({
+        title  => "Play $search",
+        url    => "twitch://$search",
+        type   => 'audio',
+        plugin => __PACKAGE__,
     });
+
+    my $items = [
+        $song,
+        {
+            name => "Add to favorites",
+            type => 'link',
+            url  => sub {
+                addFavorite($search);
+                $cb->({ items => [{ name => "Saved" }] });
+            }
+        }
+    ];
+
+    $cb->({ items => $items });
 }
 
-# --- Favoriten speichern ---
+# --- Favorites storage ---
 sub addFavorite {
     my ($channel) = @_;
     my $favs = $prefs->get('favorites') || [];
-
     push @$favs, $channel unless grep { $_ eq $channel } @$favs;
     $prefs->set('favorites', $favs);
 }
 
-# --- Favoriten anzeigen ---
+# --- List favorites ---
 sub listFavorites {
     my ($client, $cb, $args) = @_;
-
     my $favs = $prefs->get('favorites') || [];
 
     my @items = map {
-        {
-            name => "▶ $_",
-            type => 'audio',
-            url  => "twitch://$_",
-        }
+        Slim::Player::Song->new({
+            title  => "Play $_",
+            url    => "twitch://$_",
+            type   => 'audio',
+            plugin => __PACKAGE__,
+        })
     } @$favs;
 
     $cb->({ items => \@items });
 }
 
-# --- Handler ---
+# --- Protocol handler ---
 sub canHandle {
     my ($class, $url) = @_;
     return $url =~ /^twitch:/;
 }
-
-use Slim::Player::Song;
 
 sub getNextTrack {
     my ($class, $client, $cb, $args) = @_;
 
     my ($channel) = $args->{url} =~ m{^twitch://(.+)$};
 
-    my $tries = 3;
     my $stream;
+    my $tries = 3;
 
     while ($tries--) {
         $stream = Plugins::TwitchAudio::Twitch::getAudioUrl($channel);
@@ -114,18 +121,15 @@ sub getNextTrack {
     }
 
     if ($stream) {
-        # Create a proper Slim::Player::Song object
-        my $song = Slim::Player::Song->new(
-            {   
-                title  => "Twitch: $channel",
-                url    => $stream,
-                type   => 'audio',
-                plugin => $class,
-            }
-        );
+        my $song = Slim::Player::Song->new({
+            title  => "Twitch: $channel",
+            url    => $stream,
+            type   => 'audio',
+            plugin => $class,
+        });
         $cb->({ song => $song });
     } else {
-        $cb->({ error => "Stream offline oder nicht verfügbar" });
+        $cb->({ error => "Stream offline or not available" });
     }
 }
 

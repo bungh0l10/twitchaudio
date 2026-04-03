@@ -3,47 +3,91 @@ package Plugins::TwitchAudio::Plugin;
 use strict;
 use warnings;
 
+use base qw(Slim::Plugin::OPMLBased);
+use Slim::Utils::Prefs;
 use Slim::Utils::Log;
 use Plugins::TwitchAudio::Twitch;
 use Plugins::TwitchAudio::ProtocolHandler;
 
-# register a logging category
+my $prefs = preferences('plugin.twitchaudio');
+
+# Proper log category
 my $log = Slim::Utils::Log->addLogCategory({
     category     => 'plugin.twitchaudio',
-    defaultLevel => 'DEBUG',
-    description  => 'PLUGIN_TWITCHAUDIO_NAME',
+    defaultLevel => 'WARN',
+    description  => 'TwitchAudio Plugin',
+    logGroups    => 'SCANNER',
 });
 
 sub initPlugin {
+    my $class = shift;
     $log->info("Initializing TwitchAudio plugin");
 
-    # register protocol handler
-    Slim::Player::Protocols->registerHandler('twitch', 'Plugins::TwitchAudio::ProtocolHandler');
+    # Register ProtocolHandler
+    Slim::Player::ProtocolHandlers->registerHandler(
+        twitch => 'Plugins::TwitchAudio::ProtocolHandler'
+    );
+
+    $class->SUPER::initPlugin(
+        feed   => \&handleFeed,
+        tag    => 'twitchaudio',
+        menu   => 'radios',
+        is_app => 1,
+    );
 }
 
-# handle search requests
+# Main menu
+sub handleFeed {
+    my ($client, $cb, $args) = @_;
+    $log->debug("handleFeed called");
+
+    my $items = [
+        { name => 'Search channel', type => 'search', url => \&searchChannel },
+        { name => 'Favorites', type => 'link', url => \&listFavorites },
+    ];
+
+    $cb->({ items => $items });
+}
+
 sub searchChannel {
-    my ($class, $query, $callback) = @_;
-    $log->debug("searchChannel called with query: '$query'");
+    my ($client, $cb, $args, $search) = @_;
+    $log->debug("searchChannel called with query: $search");
 
-    return $callback->([]) unless $query;
-
-    Plugins::TwitchAudio::Twitch::getChannel($query, sub {
-        my $data = shift;
-        my $items = [];
-
-        if ($data && $data->{user}) {
-            my $user = $data->{user};
-            push @$items, {
-                uri   => "twitch://channel/" . $user->{login},
-                title => $user->{stream} ? $user->{stream}->{title} : $user->{login},
-                icon  => $user->{profileImageURL},
-                artist => $user->{login},
-            };
+    my $items = [
+        {
+            name => "Play $search",
+            type => 'audio',
+            url  => "twitch://$search"
+        },
+        {
+            name => "Add to favorites",
+            type => 'link',
+            url  => sub {
+                addFavorite($search);
+                $cb->({ items => [{ name => "Saved" }] });
+            }
         }
+    ];
 
-        $callback->($items);
-    });
+    $cb->({ items => $items });
+}
+
+sub addFavorite {
+    my ($channel) = @_;
+    my $favs = $prefs->get('favorites') || [];
+    push @$favs, $channel unless grep { $_ eq $channel } @$favs;
+    $prefs->set('favorites', $favs);
+    $log->debug("Favorites updated: " . join(", ", @$favs));
+}
+
+sub listFavorites {
+    my ($client, $cb, $args) = @_;
+    $log->debug("listFavorites called");
+
+    my $favs = $prefs->get('favorites') || [];
+    my @items = map { { name => "Play $_", type => 'audio', url => "twitch://$_" } } @$favs;
+
+    $cb->({ items => \@items });
 }
 
 1;

@@ -7,23 +7,17 @@ use base qw(Slim::Plugin::OPMLBased);
 use Slim::Utils::Prefs;
 use Slim::Utils::Log;
 use Plugins::TwitchAudio::Twitch;
-use Plugins::TwitchAudio::ProtocolHandler;
 
 my $prefs = preferences('plugin.twitchaudio');
-
-# Proper log category
-my $log = Slim::Utils::Log->addLogCategory({
+my $log   = Slim::Utils::Log->addLogCategory({
     category     => 'plugin.twitchaudio',
     defaultLevel => 'WARN',
-    description  => 'TwitchAudio Plugin',
-    logGroups    => 'SCANNER',
+    description  => 'Twitch Audio Plugin',
 });
 
 sub initPlugin {
     my $class = shift;
-    $log->info("Initializing TwitchAudio plugin");
 
-    # Register ProtocolHandler
     Slim::Player::ProtocolHandlers->registerHandler(
         twitch => 'Plugins::TwitchAudio::ProtocolHandler'
     );
@@ -34,60 +28,109 @@ sub initPlugin {
         menu   => 'radios',
         is_app => 1,
     );
+
+    $log->info("Plugin initialized");
 }
 
-# Main menu
+# --- Main menu ---
 sub handleFeed {
     my ($client, $cb, $args) = @_;
+
     $log->debug("handleFeed called");
 
     my $items = [
-        { name => 'Search channel', type => 'search', url => \&searchChannel },
-        { name => 'Favorites', type => 'link', url => \&listFavorites },
-    ];
-
-    $cb->({ items => $items });
-}
-
-sub searchChannel {
-    my ($client, $cb, $args, $search) = @_;
-    $log->debug("searchChannel called with query: $search");
-
-    my $items = [
         {
-            name => "Play $search",
-            type => 'audio',
-            url  => "twitch://$search"
+            name => 'Search Channel',
+            type => 'search',
+            url  => \&searchChannel,
         },
         {
-            name => "Add to favorites",
+            name => 'Favorites',
             type => 'link',
-            url  => sub {
-                addFavorite($search);
-                $cb->({ items => [{ name => "Saved" }] });
-            }
-        }
+            url  => \&listFavorites,
+        },
     ];
 
     $cb->({ items => $items });
 }
 
+# --- Search ---
+sub searchChannel {
+    my ($client, $cb, $args, $search) = @_;
+    $search ||= '';
+    $search =~ s/^\s+|\s+$//g;  # trim spaces
+
+    $log->debug("searchChannel called with query: '$search'");
+
+    return $cb->({ items => [] }) unless $search;
+
+    $cb->({
+        items => [
+            {
+                name => "Play $search",
+                type => 'audio',
+                url  => "twitch://$search",
+            },
+            {
+                name => "Add to Favorites",
+                type => 'link',
+                url  => sub {
+                    addFavorite($search);
+                    $cb->({ items => [{ name => "Saved ✔" }] });
+                }
+            }
+        ]
+    });
+}
+
+# --- Favorites management ---
 sub addFavorite {
     my ($channel) = @_;
     my $favs = $prefs->get('favorites') || [];
+
     push @$favs, $channel unless grep { $_ eq $channel } @$favs;
     $prefs->set('favorites', $favs);
-    $log->debug("Favorites updated: " . join(", ", @$favs));
+
+    $log->info("Favorites updated: " . join(',', @$favs));
 }
 
 sub listFavorites {
     my ($client, $cb, $args) = @_;
-    $log->debug("listFavorites called");
-
     my $favs = $prefs->get('favorites') || [];
-    my @items = map { { name => "Play $_", type => 'audio', url => "twitch://$_" } } @$favs;
+
+    my @items = map {
+        {
+            name => "Play $_",
+            type => 'audio',
+            url  => "twitch://$_",
+        }
+    } @$favs;
 
     $cb->({ items => \@items });
+}
+
+# --- ProtocolHandler check ---
+sub canHandle {
+    my ($class, $url) = @_;
+    return $url =~ /^twitch:/;
+}
+
+sub getNextTrack {
+    my ($class, $client, $cb, $args) = @_;
+
+    my ($channel) = $args->{url} =~ m{^twitch://(.+)$};
+    return $cb->({ error => "Invalid channel" }) unless $channel;
+
+    $log->debug("Fetching audio for channel: $channel");
+
+    my $stream = Plugins::TwitchAudio::Twitch::getAudioUrl($channel);
+
+    if ($stream) {
+        $cb->({ url => $stream });
+    } else {
+        $cb->({ error => "Stream offline or unavailable" });
+        $log->warn("No stream returned for channel: $channel");
+    }
 }
 
 1;

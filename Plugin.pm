@@ -7,20 +7,20 @@ use base qw(Slim::Plugin::OPMLBased);
 use Slim::Player::ProtocolHandlers;
 use Slim::Player::Song;
 use Slim::Utils::Prefs;
+use Slim::Utils::Log;
 use Plugins::TwitchAudio::Twitch;
 
 my $prefs = preferences('plugin.twitchaudio');
+my $log   = logger('plugin.twitchaudio');
 
 # --- Plugin initialization ---
 sub initPlugin {
     my $class = shift;
 
-    # Register Twitch protocol handler
     Slim::Player::ProtocolHandlers->registerHandler(
         twitch => $class
     );
 
-    # Initialize OPML-based plugin
     $class->SUPER::initPlugin(
         feed   => \&handleFeed,
         tag    => 'twitchaudio',
@@ -53,7 +53,7 @@ sub handleFeed {
 sub searchChannel {
     my ($client, $cb, $args, $search) = @_;
 
-    # Playable Song object
+    # Always return a Song object for playable item
     my $song = Slim::Player::Song->new({
         title  => "Play $search",
         url    => "twitch://$search",
@@ -109,7 +109,6 @@ sub canHandle {
 
 sub getNextTrack {
     my ($class, $client, $cb, $args) = @_;
-
     my ($channel) = $args->{url} =~ m{^twitch://(.+)$};
 
     my $stream;
@@ -117,7 +116,10 @@ sub getNextTrack {
 
     while ($tries--) {
         $stream = Plugins::TwitchAudio::Twitch::getAudioUrl($channel);
-        last if $stream;
+        if ($stream) {
+            last;
+        }
+        $log->warn("Retrying Twitch stream for $channel...");
         sleep 2;
     }
 
@@ -130,7 +132,14 @@ sub getNextTrack {
         });
         $cb->({ song => $song });
     } else {
-        $cb->({ error => "Stream offline or not available" });
+        # Always return an error Song object instead of undef
+        $log->warn("Twitch stream offline or not available for $channel");
+        $cb->({ song => Slim::Player::Song->new({
+            title  => "Stream offline: $channel",
+            url    => '',
+            type   => 'audio',
+            plugin => $class,
+        }) });
     }
 }
 

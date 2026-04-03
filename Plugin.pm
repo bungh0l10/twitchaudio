@@ -15,6 +15,7 @@ my $log   = logger('plugin.twitchaudio');
 # Initialize plugin
 sub initPlugin {
     my $class = shift;
+    $log->debug("Initializing TwitchAudio plugin");
     $class->SUPER::initPlugin(
         feed   => \&handleFeed,
         tag    => 'twitchaudio',
@@ -26,6 +27,8 @@ sub initPlugin {
 # Main menu
 sub handleFeed {
     my ($client, $cb, $args) = @_;
+    $log->debug("handleFeed called");
+
     my $items = [
         { name => 'Search channel', type => 'search', url => \&searchChannel },
         { name => 'Favorites', type => 'link', url => \&listFavorites },
@@ -36,6 +39,7 @@ sub handleFeed {
 # Search
 sub searchChannel {
     my ($client, $cb, $args, $search) = @_;
+    $log->debug("searchChannel called with query: $search");
 
     my $items = [
         {
@@ -51,6 +55,7 @@ sub searchChannel {
             url  => sub {
                 addFavorite($search);
                 $cb->({ items => [{ name => "Saved" }] });
+                $log->debug("Added $search to favorites");
             }
         }
     ];
@@ -64,11 +69,14 @@ sub addFavorite {
     my $favs = $prefs->get('favorites') || [];
     push @$favs, $channel unless grep { $_ eq $channel } @$favs;
     $prefs->set('favorites', $favs);
+    $log->debug("Favorites updated: " . join(", ", @$favs));
 }
 
 # List favorites
 sub listFavorites {
     my ($client, $cb, $args) = @_;
+    $log->debug("listFavorites called");
+
     my $favs = $prefs->get('favorites') || [];
 
     my @items = map {
@@ -85,24 +93,29 @@ sub listFavorites {
 # Get a real Song from Twitch HLS
 sub getTwitchSong {
     my ($channel, $cb) = @_;
+    $log->debug("getTwitchSong called for channel: $channel");
 
     my $url = Plugins::TwitchAudio::Twitch::getAudioUrl($channel);
 
-    my $song = $url
-        ? Slim::Player::Song->new({
+    if ($url) {
+        $log->debug("Obtained HLS URL for $channel: $url");
+        my $song = Slim::Player::Song->new({
             title  => "Twitch: $channel",
             url    => $url,
             type   => 'audio',
             plugin => __PACKAGE__,
-        })
-        : Slim::Player::Song->new({
+        });
+        $cb->({ song => $song });
+    } else {
+        $log->error("No stream available for channel: $channel");
+        my $song = Slim::Player::Song->new({
             title  => "Stream offline: $channel",
-            url    => '',  # LMS can skip
+            url    => '',  # LMS will skip this
             type   => 'audio',
             plugin => __PACKAGE__,
         });
-
-    $cb->({ song => $song });
+        $cb->({ song => $song });
+    }
 }
 
 1;

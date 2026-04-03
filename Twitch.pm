@@ -13,8 +13,8 @@ my $CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 
 sub getAudioUrl {
     my ($channel) = @_;
+    $log->debug("Fetching audio URL for channel: $channel");
 
-    # GraphQL query
     my $payload = {
         operationName => "PlaybackAccessToken_Template",
         query => 'query PlaybackAccessToken_Template($login: String!, $playerType: String!) { streamPlaybackAccessToken(channelName: $login, params: { platform: "web", playerBackend: "mediaplayer", playerType: $playerType }) { signature value } }',
@@ -29,12 +29,21 @@ sub getAudioUrl {
         content => encode_json($payload),
     });
 
-    return unless $res->{success};
+    unless ($res->{success}) {
+        $log->error("Twitch GraphQL request failed for $channel");
+        return;
+    }
+
+    $log->debug("Twitch GraphQL response: $res->{content}");
 
     my $data = decode_json($res->{content});
     my $sig   = $data->{data}{streamPlaybackAccessToken}{signature};
     my $token = $data->{data}{streamPlaybackAccessToken}{value};
-    return unless $sig && $token;
+
+    unless ($sig && $token) {
+        $log->error("No signature/token returned for $channel");
+        return;
+    }
 
     my $p = int(rand(1000000));
     my $encoded = uri_escape_utf8($token);
@@ -43,16 +52,22 @@ sub getAudioUrl {
         . "?p=$p&sig=$sig&token=$encoded&allow_audio_only=true";
 
     my $m3u = $http->get($url);
-    return unless $m3u->{success};
+    unless ($m3u->{success}) {
+        $log->error("Failed to fetch playlist for $channel");
+        return;
+    }
 
-    # Find first audio-only stream
+    $log->debug("Playlist content fetched for $channel, scanning for audio-only stream");
+
     my @lines = split /\n/, $m3u->{content};
     for (my $i = 0; $i < @lines - 1; $i++) {
         if ($lines[$i] =~ /audio_only/ && $lines[$i+1] =~ /^https/) {
+            $log->debug("Audio-only stream found: $lines[$i+1]");
             return $lines[$i+1];
         }
     }
 
+    $log->error("No audio-only stream found for $channel");
     return;
 }
 

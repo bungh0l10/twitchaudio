@@ -59,30 +59,34 @@ sub searchChannel {
 
     Plugins::TwitchAudio::Twitch::getChannel($search, sub {
         my ($data) = @_;
-        my $user = $data->{user} if $data;
+        my $user   = $data->{user} if $data;
         my $online = $user && $user->{stream} ? 1 : 0;
+
+        # Twitch-Daten
         my $title  = $online ? $user->{stream}{title} : "Offline";
         my $cover  = $user ? $user->{profileImageURL} : "";
+        my $artist = $user ? $user->{login} : $search;  # echter Kanalname als Artist
 
         my $url;
         if ($online) {
-            $url = Plugins::TwitchAudio::Twitch::getAudioUrl($search);
+            $url = Plugins::TwitchAudio::Twitch::getAudioUrl($artist);
         }
 
         my $items = [
             {
-                name  => $search,
-                type  => $online ? 'audio' : 'link',
-                url   => $url || "twitch://$search",
-                title => $title,
-                cover => $cover,
+                name   => $artist,       # Anzeigename in der Liste
+                type   => $online ? 'audio' : 'link',
+                url    => $url || "twitch://$artist",
+                artist => $artist,       # Player zeigt Interpret
+                title  => $title,        # Player zeigt Titel
+                cover  => $cover,        # Player zeigt Cover
             },
             {
                 name => "Add to favorites",
                 type => 'link',
                 url  => sub {
-                    addFavorite($search);
-                    $cb->({ items => [{ name => "Saved: $search" }] });
+                    addFavorite($artist);
+                    $cb->({ items => [{ name => "Saved: $artist" }] });
                 }
             }
         ];

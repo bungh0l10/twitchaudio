@@ -4,7 +4,6 @@ use strict;
 use warnings;
 
 use base qw(Slim::Plugin::OPMLBased);
-use Slim::Player::ProtocolHandlers;
 use Slim::Player::Song;
 use Slim::Utils::Prefs;
 use Slim::Utils::Log;
@@ -17,10 +16,7 @@ my $log   = logger('plugin.twitchaudio');
 sub initPlugin {
     my $class = shift;
 
-    Slim::Player::ProtocolHandlers->registerHandler(
-        twitch => $class
-    );
-
+    # Do NOT register as protocol handler to avoid LMS probing
     $class->SUPER::initPlugin(
         feed   => \&handleFeed,
         tag    => 'twitchaudio',
@@ -100,16 +96,27 @@ sub listFavorites {
     $cb->({ items => \@items });
 }
 
-# --- Protocol handler ---
+# --- Defensive protocol handler ---
 sub canHandle {
     my ($class, $url) = @_;
+    return 0 unless $url;  # never handle undefined URLs
     return $url =~ /^twitch:/;
 }
 
+# --- Get next track ---
 sub getNextTrack {
     my ($class, $client, $cb, $args) = @_;
-    my ($channel) = $args->{url} =~ m{^twitch://(.+)$};
+    my $url = $args->{url} or do {
+        $cb->({ song => Slim::Player::Song->new({
+            title => 'Invalid track',
+            url   => '',
+            type  => 'audio',
+            plugin => $class,
+        }) });
+        return;
+    };
 
+    my ($channel) = $url =~ m{^twitch://(.+)$};
     my $stream;
     my $tries = 3;
 
@@ -120,23 +127,19 @@ sub getNextTrack {
         sleep 2;
     }
 
-    my $song;
-    if ($stream) {
-        $song = Slim::Player::Song->new({
+    my $song = $stream
+        ? Slim::Player::Song->new({
             title  => "Twitch: $channel",
             url    => $stream,
             type   => 'audio',
             plugin => $class,
-        });
-    } else {
-        $log->warn("Twitch stream offline or not available for $channel");
-        $song = Slim::Player::Song->new({
+        })
+        : Slim::Player::Song->new({
             title  => "Stream offline: $channel",
             url    => '',  # LMS handles empty URL
             type   => 'audio',
             plugin => $class,
         });
-    }
 
     $cb->({ song => $song });
 }

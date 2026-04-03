@@ -73,14 +73,18 @@ sub searchChannel {
             $url = Plugins::TwitchAudio::Twitch::getAudioUrl($artist);
         }
 
+        # Item für die Liste vorbereiten
         my $items = [
             {
                 name   => $artist,       # Anzeigename in der Liste
                 type   => $online ? 'audio' : 'link',
                 url    => $url || "twitch://$artist",
-                artist => $artist,       # Player zeigt Interpret
-                title  => $title,        # Player zeigt Titel
-                cover  => $cover,        # Player zeigt Cover
+                song   => {              # wird an scanUrl weitergegeben
+                    url    => $url,
+                    artist => $artist,
+                    title  => $title,
+                    cover  => $cover,
+                },
             },
             {
                 name => "Add to favorites",

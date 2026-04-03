@@ -7,7 +7,7 @@ BEGIN {
 use strict;
 use warnings;
 
-use base qw(Slim::Player::Protocols::HTTP);
+use base qw(Slim::Player::Protocols::HTTPS);
 
 use Slim::Utils::Log;
 use Plugins::TwitchAudio::Twitch;

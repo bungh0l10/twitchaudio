@@ -6,61 +6,47 @@ use warnings;
 use base qw(Slim::Player::Protocols::HTTPS);
 
 use Slim::Utils::Log;
-use Slim::Utils::Scanner::Remote;
-use Plugins::TwitchAudio::Twitch;
+use Slim::Player::Song;
 
 my $log = Slim::Utils::Log->logger('plugin.twitchaudio');
 
-# scanUrl: wandelt twitch://channel in ein spielbares Song-Objekt
+# scanUrl: baut direkt das Song-Objekt aus den übergebenen Metadaten
 sub scanUrl {
     my ($class, $uri, $args) = @_;
-    my ($channel) = $uri =~ m|twitch://(.+)|;
+    my $client = $args->{client};
 
-    $log->debug("scanUrl called for channel: $channel");
+    # Die Metadaten werden über $args->{song} übergeben
+    my $songData = $args->{song};
+    unless ($songData && $songData->{url}) {
+        $log->warn("scanUrl: Keine URL für $uri");
+        return;
+    }
 
-    # erst Kanalinfo holen
-    Plugins::TwitchAudio::Twitch::getChannel($channel, sub {
-        my ($data) = @_;
-        my $user   = $data->{user} if $data;
-        my $online = $user && $user->{stream} ? 1 : 0;
-
-        my $title  = $online ? $user->{stream}{title} : "Offline";
-        my $cover  = $user ? $user->{profileImageURL} : "";
-        my $artist = $user ? $user->{login} : $channel;
-
-        my $url;
-        if ($online) {
-            $url = Plugins::TwitchAudio::Twitch::getAudioUrl($artist);
-        }
-
-        unless ($url) {
-            $log->warn("No audio stream available for $artist");
-            return;
-        }
-
-        # Song direkt an Scanner übergeben
-        my $song = {
-            url    => $url,
-            type   => 'audio',
-            artist => $artist,
-            title  => $title,
-            cover  => $cover,
-        };
-
-        # Scanner absetzen, Player bekommt die Metadaten korrekt
-        Slim::Utils::Scanner::Remote->scanURL($url, { %$args, song => $song });
-
-        # Plugin-Daten für Player/Skins setzen
-        my $client = $args->{client};
-        if ($client && $client->playingSong) {
-            $client->playingSong->pluginData({
-                artist => $artist,
-                title  => $title,
-                cover  => $cover,
-            });
-            Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
-        }
+    # Eigenes Song-Objekt bauen
+    my $song = Slim::Player::Song->new({
+        url    => $songData->{url},
+        type   => 'audio',
+        name   => $songData->{artist} . ' - ' . $songData->{title},  # Player zeigt Name
+        artist => $songData->{artist},
+        title  => $songData->{title},
+        cover  => $songData->{cover},
     });
+
+    # Song an den Client übergeben
+    if ($client) {
+        $client->play($song);
+
+        # pluginData setzen (für Skins etc.)
+        $client->playingSong->pluginData({
+            artist => $songData->{artist},
+            title  => $songData->{title},
+            cover  => $songData->{cover},
+        });
+
+        Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
+    }
+
+    $log->debug("scanUrl: Playing $songData->{artist} - $songData->{title}");
 }
 
 1;

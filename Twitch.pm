@@ -42,6 +42,7 @@ sub getAudioUrl {
     });
 
     return unless $res->{success};
+    $log->debug("res: $res");
 
     my $data = eval { decode_json($res->{content}) };
     return if $@;

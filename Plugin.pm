@@ -4,21 +4,28 @@ use strict;
 use warnings;
 
 use base qw(Slim::Plugin::OPMLBased);
-use Slim::Player::Song;
 use Slim::Utils::Prefs;
 use Slim::Utils::Log;
 use Plugins::TwitchAudio::Twitch;
+use Plugins::TwitchAudio::ProtocolHandler;
 
 my $prefs = preferences('plugin.twitchaudio');
-my $log   = logger('plugin.twitchaudio');
 
-# Initialize plugin
+# Proper log category
+my $log = Slim::Utils::Log->addLogCategory({
+    category     => 'plugin.twitchaudio',
+    defaultLevel => 'WARN',
+    description  => 'TwitchAudio Plugin',
+    logGroups    => 'SCANNER',
+});
+
 sub initPlugin {
     my $class = shift;
     $log->info("Initializing TwitchAudio plugin");
-    
+
+    # Register ProtocolHandler
     Slim::Player::ProtocolHandlers->registerHandler(
-        twitch => 'Plugins::TwitchAudio::Plugin'
+        twitch => 'Plugins::TwitchAudio::ProtocolHandler'
     );
 
     $class->SUPER::initPlugin(
@@ -42,7 +49,6 @@ sub handleFeed {
     $cb->({ items => $items });
 }
 
-# Search for a channel
 sub searchChannel {
     my ($client, $cb, $args, $search) = @_;
     $log->debug("searchChannel called with query: $search");
@@ -51,9 +57,7 @@ sub searchChannel {
         {
             name => "Play $search",
             type => 'audio',
-            url  => sub {
-                getTwitchSong($search, $cb);
-            }
+            url  => "twitch://$search"
         },
         {
             name => "Add to favorites",
@@ -68,7 +72,6 @@ sub searchChannel {
     $cb->({ items => $items });
 }
 
-# Add favorite
 sub addFavorite {
     my ($channel) = @_;
     my $favs = $prefs->get('favorites') || [];
@@ -77,50 +80,14 @@ sub addFavorite {
     $log->debug("Favorites updated: " . join(", ", @$favs));
 }
 
-# List favorites
 sub listFavorites {
     my ($client, $cb, $args) = @_;
     $log->debug("listFavorites called");
 
     my $favs = $prefs->get('favorites') || [];
-
-    my @items = map {
-        {
-            name => "Play $_",
-            type => 'audio',
-            url  => sub { getTwitchSong($_, $cb); }
-        }
-    } @$favs;
+    my @items = map { { name => "Play $_", type => 'audio', url => "twitch://$_" } } @$favs;
 
     $cb->({ items => \@items });
-}
-
-# Get a Song object from Twitch
-sub getTwitchSong {
-    my ($channel, $cb) = @_;
-    $log->debug("getTwitchSong called for channel: $channel");
-
-    my $url = Plugins::TwitchAudio::Twitch::getAudioUrl($channel);
-
-    if ($url) {
-        $log->info("Obtained HLS URL for $channel: $url");
-        my $song = Slim::Player::Song->new({
-            title  => "Twitch: $channel",
-            url    => $url,
-            type   => 'audio',
-            plugin => __PACKAGE__,
-        });
-        $cb->({ song => $song });
-    } else {
-        $log->warn("No stream available for channel: $channel");
-        my $song = Slim::Player::Song->new({
-            title  => "Stream offline: $channel",
-            url    => '',
-            type   => 'audio',
-            plugin => __PACKAGE__,
-        });
-        $cb->({ song => $song });
-    }
 }
 
 1;

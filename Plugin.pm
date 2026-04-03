@@ -8,13 +8,12 @@ use Slim::Utils::Prefs;
 use Slim::Utils::Log;
 use Plugins::TwitchAudio::Twitch;
 use Plugins::TwitchAudio::ProtocolHandler;
-use Slim::Player::ProtocolHandlers;
 
 my $prefs = preferences('plugin.twitchaudio');
 
 my $log = Slim::Utils::Log->addLogCategory({
     category     => 'plugin.twitchaudio',
-    defaultLevel => 'WARN',
+    defaultLevel => 'DEBUG',
     description  => 'TwitchAudio Plugin',
     logGroups    => 'SCANNER',
 });
@@ -23,7 +22,6 @@ sub initPlugin {
     my $class = shift;
     $log->info("Initializing TwitchAudio plugin");
 
-    # ProtocolHandler registrieren
     Slim::Player::ProtocolHandlers->registerHandler(
         twitch => 'Plugins::TwitchAudio::ProtocolHandler'
     );
@@ -49,43 +47,42 @@ sub handleFeed {
     $cb->({ items => $items });
 }
 
-# Search
+# Search channel and fetch info
 sub searchChannel {
     my ($client, $cb, $args) = @_;
-
     my $search = $args->{search} || '';
     $search =~ s/^\s+|\s+$//g;
 
+    return $cb->({ items => [{ name => "Enter a channel name" }] }) unless $search;
+
     $log->info("Search query: $search");
 
-    unless ($search) {
-        return $cb->({ items => [{ name => "Enter a channel name" }] });
-    }
-
-    # Twitch API aufrufen
     Plugins::TwitchAudio::Twitch::getChannel($search, sub {
         my ($data) = @_;
-
-        my $user   = $data->{user} if $data;
-        my $title  = $user && $user->{stream} ? $user->{stream}{title} : "Live audio";
-        my $cover  = $user ? $user->{profileImageURL} : "";
+        my $user = $data->{user} if $data;
         my $online = $user && $user->{stream} ? 1 : 0;
+        my $title  = $online ? $user->{stream}{title} : "Offline";
+        my $cover  = $user ? $user->{profileImageURL} : "";
+
+        my $url;
+        if ($online) {
+            $url = Plugins::TwitchAudio::Twitch::getAudioUrl($search);
+        }
 
         my $items = [
             {
-                name  => "Play $search",
-                type  => 'audio',
-                url   => "twitch://$search",
-                cover => $cover,
+                name  => $search,
+                type  => $online ? 'audio' : 'link',
+                url   => $url || "twitch://$search",
                 title => $title,
-                online => $online,
+                cover => $cover,
             },
             {
                 name => "Add to favorites",
                 type => 'link',
                 url  => sub {
                     addFavorite($search);
-                    $cb->({ items => [{ name => "Saved $search" }] });
+                    $cb->({ items => [{ name => "Saved: $search" }] });
                 }
             }
         ];
@@ -94,6 +91,7 @@ sub searchChannel {
     });
 }
 
+# Favorites
 sub addFavorite {
     my ($channel) = @_;
     my $favs = $prefs->get('favorites') || [];
@@ -104,9 +102,14 @@ sub addFavorite {
 
 sub listFavorites {
     my ($client, $cb, $args) = @_;
-
     my $favs = $prefs->get('favorites') || [];
-    my @items = map { { name => "Play $_", type => 'audio', url => "twitch://$_" } } @$favs;
+    my @items = map {
+        {
+            name  => $_,
+            type  => 'audio',
+            url   => "twitch://$_",
+        }
+    } @$favs;
 
     $cb->({ items => \@items });
 }

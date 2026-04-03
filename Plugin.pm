@@ -97,6 +97,8 @@ sub canHandle {
     return $url =~ /^twitch:/;
 }
 
+use Slim::Player::Song;
+
 sub getNextTrack {
     my ($class, $client, $cb, $args) = @_;
 
@@ -108,18 +110,22 @@ sub getNextTrack {
     while ($tries--) {
         $stream = Plugins::TwitchAudio::Twitch::getAudioUrl($channel);
         last if $stream;
-
-        sleep 2; # Retry delay
+        sleep 2;
     }
 
     if ($stream) {
-        $cb->({
-            url => $stream,
-        });
+        # Create a proper Slim::Player::Song object
+        my $song = Slim::Player::Song->new(
+            {   
+                title  => "Twitch: $channel",
+                url    => $stream,
+                type   => 'audio',
+                plugin => $class,
+            }
+        );
+        $cb->({ song => $song });
     } else {
-        $cb->({
-            error => "Stream offline oder nicht verfügbar",
-        });
+        $cb->({ error => "Stream offline oder nicht verfügbar" });
     }
 }
 

@@ -41,7 +41,7 @@ sub getAudioUrl {
     my $token = $data->{data}{streamPlaybackAccessToken}{value};
 
     unless ($sig && $token) {
-        $log->error("No signature/token returned for $channel");
+        $log->warn("No signature/token returned for $channel");
         return;
     }
 
@@ -57,17 +57,15 @@ sub getAudioUrl {
         return;
     }
 
-    $log->debug("Playlist content fetched for $channel, scanning for audio-only stream");
-
     my @lines = split /\n/, $m3u->{content};
     for (my $i = 0; $i < @lines - 1; $i++) {
         if ($lines[$i] =~ /audio_only/ && $lines[$i+1] =~ /^https/) {
-            $log->debug("Audio-only stream found: $lines[$i+1]");
+            $log->info("Audio-only stream found for $channel: $lines[$i+1]");
             return $lines[$i+1];
         }
     }
 
-    $log->error("No audio-only stream found for $channel");
+    $log->warn("No audio-only stream found for $channel");
     return;
 }
 

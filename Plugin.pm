@@ -15,7 +15,12 @@ my $log   = logger('plugin.twitchaudio');
 # Initialize plugin
 sub initPlugin {
     my $class = shift;
-    $log->debug("Initializing TwitchAudio plugin");
+    $log->info("Initializing TwitchAudio plugin");
+    
+    Slim::Player::ProtocolHandlers->registerHandler(
+        twitch => 'Plugins::TwitchAudio::Plugin'
+    );
+
     $class->SUPER::initPlugin(
         feed   => \&handleFeed,
         tag    => 'twitchaudio',
@@ -33,10 +38,11 @@ sub handleFeed {
         { name => 'Search channel', type => 'search', url => \&searchChannel },
         { name => 'Favorites', type => 'link', url => \&listFavorites },
     ];
+
     $cb->({ items => $items });
 }
 
-# Search
+# Search for a channel
 sub searchChannel {
     my ($client, $cb, $args, $search) = @_;
     $log->debug("searchChannel called with query: $search");
@@ -55,7 +61,6 @@ sub searchChannel {
             url  => sub {
                 addFavorite($search);
                 $cb->({ items => [{ name => "Saved" }] });
-                $log->debug("Added $search to favorites");
             }
         }
     ];
@@ -90,7 +95,7 @@ sub listFavorites {
     $cb->({ items => \@items });
 }
 
-# Get a real Song from Twitch HLS
+# Get a Song object from Twitch
 sub getTwitchSong {
     my ($channel, $cb) = @_;
     $log->debug("getTwitchSong called for channel: $channel");
@@ -98,7 +103,7 @@ sub getTwitchSong {
     my $url = Plugins::TwitchAudio::Twitch::getAudioUrl($channel);
 
     if ($url) {
-        $log->debug("Obtained HLS URL for $channel: $url");
+        $log->info("Obtained HLS URL for $channel: $url");
         my $song = Slim::Player::Song->new({
             title  => "Twitch: $channel",
             url    => $url,
@@ -107,10 +112,10 @@ sub getTwitchSong {
         });
         $cb->({ song => $song });
     } else {
-        $log->error("No stream available for channel: $channel");
+        $log->warn("No stream available for channel: $channel");
         my $song = Slim::Player::Song->new({
             title  => "Stream offline: $channel",
-            url    => '',  # LMS will skip this
+            url    => '',
             type   => 'audio',
             plugin => __PACKAGE__,
         });

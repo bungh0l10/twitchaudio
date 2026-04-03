@@ -53,7 +53,6 @@ sub handleFeed {
 sub searchChannel {
     my ($client, $cb, $args, $search) = @_;
 
-    # Always return a Song object for playable item
     my $song = Slim::Player::Song->new({
         title  => "Play $search",
         url    => "twitch://$search",
@@ -116,31 +115,30 @@ sub getNextTrack {
 
     while ($tries--) {
         $stream = Plugins::TwitchAudio::Twitch::getAudioUrl($channel);
-        if ($stream) {
-            last;
-        }
+        last if $stream;
         $log->warn("Retrying Twitch stream for $channel...");
         sleep 2;
     }
 
+    my $song;
     if ($stream) {
-        my $song = Slim::Player::Song->new({
+        $song = Slim::Player::Song->new({
             title  => "Twitch: $channel",
             url    => $stream,
             type   => 'audio',
             plugin => $class,
         });
-        $cb->({ song => $song });
     } else {
-        # Always return an error Song object instead of undef
         $log->warn("Twitch stream offline or not available for $channel");
-        $cb->({ song => Slim::Player::Song->new({
+        $song = Slim::Player::Song->new({
             title  => "Stream offline: $channel",
-            url    => '',
+            url    => '',  # LMS handles empty URL
             type   => 'audio',
             plugin => $class,
-        }) });
+        });
     }
+
+    $cb->({ song => $song });
 }
 
 1;

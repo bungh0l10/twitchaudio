@@ -1,5 +1,9 @@
 package Plugins::TwitchAudio::ProtocolHandler;
 
+BEGIN {
+    warn "### Twitch ProtocolHandler loaded ###\n";
+}
+
 use strict;
 use warnings;
 
@@ -13,6 +17,10 @@ my $log = Slim::Utils::Log->logger('plugin.twitchaudio');
 sub canHandle {
     my ($class, $url) = @_;
     return $url =~ /^twitch:/;
+}
+
+sub canDirectStream {
+    return 1;
 }
 
 sub isRemote { 1 }

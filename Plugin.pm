@@ -6,22 +6,24 @@ use warnings;
 use base qw(Slim::Plugin::OPMLBased);
 use Slim::Utils::Prefs;
 use Slim::Utils::Log;
+use Plugins::TwitchAudio::Twitch;
 use Plugins::TwitchAudio::ProtocolHandler;
+use Slim::Player::ProtocolHandlers;
 
 my $prefs = preferences('plugin.twitchaudio');
 
 my $log = Slim::Utils::Log->addLogCategory({
     category     => 'plugin.twitchaudio',
-    defaultLevel => 'INFO',
+    defaultLevel => 'WARN',
     description  => 'TwitchAudio Plugin',
     logGroups    => 'SCANNER',
 });
 
 sub initPlugin {
     my $class = shift;
-
     $log->info("Initializing TwitchAudio plugin");
 
+    # ProtocolHandler registrieren
     Slim::Player::ProtocolHandlers->registerHandler(
         twitch => 'Plugins::TwitchAudio::ProtocolHandler'
     );
@@ -34,26 +36,20 @@ sub initPlugin {
     );
 }
 
+# Main menu
 sub handleFeed {
     my ($client, $cb, $args) = @_;
+    $log->debug("handleFeed called");
 
     my $items = [
-        {
-            name   => 'Search channel',
-            type   => 'search',
-            url    => \&searchChannel,
-            search => 1,
-        },
-        {
-            name => 'Favorites',
-            type => 'link',
-            url  => \&listFavorites,
-        },
+        { name => 'Search channel', type => 'search', url => \&searchChannel },
+        { name => 'Favorites', type => 'link', url => \&listFavorites },
     ];
 
     $cb->({ items => $items });
 }
 
+# Search
 sub searchChannel {
     my ($client, $cb, $args) = @_;
 
@@ -63,59 +59,54 @@ sub searchChannel {
     $log->info("Search query: $search");
 
     unless ($search) {
-        return $cb->({
-            items => [{ name => "Enter a channel name" }]
-        });
+        return $cb->({ items => [{ name => "Enter a channel name" }] });
     }
 
-    my $items = [
-        {
-            name => "▶ Play $search",
-            type => 'audio',
-            url  => "twitch://$search",
-        },
-        {
-            name => "★ Add to favorites",
-            type => 'link',
-            url  => sub {
-                addFavorite($search);
-                $cb->({ items => [{ name => "Saved: $search" }] });
-            }
-        }
-    ];
+    # Twitch API aufrufen
+    Plugins::TwitchAudio::Twitch::getChannel($search, sub {
+        my ($data) = @_;
 
-    $cb->({ items => $items });
+        my $user   = $data->{user} if $data;
+        my $title  = $user && $user->{stream} ? $user->{stream}{title} : "Live audio";
+        my $cover  = $user ? $user->{profileImageURL} : "";
+        my $online = $user && $user->{stream} ? 1 : 0;
+
+        my $items = [
+            {
+                name  => "Play $search",
+                type  => 'audio',
+                url   => "twitch://$search",
+                cover => $cover,
+                title => $title,
+                online => $online,
+            },
+            {
+                name => "Add to favorites",
+                type => 'link',
+                url  => sub {
+                    addFavorite($search);
+                    $cb->({ items => [{ name => "Saved $search" }] });
+                }
+            }
+        ];
+
+        $cb->({ items => $items });
+    });
 }
 
 sub addFavorite {
     my ($channel) = @_;
-
-    return unless $channel;
-
     my $favs = $prefs->get('favorites') || [];
-
-    unless (grep { $_ eq $channel } @$favs) {
-        push @$favs, $channel;
-        $prefs->set('favorites', $favs);
-    }
-
-    $log->info("Favorites: " . join(", ", @$favs));
+    push @$favs, $channel unless grep { $_ eq $channel } @$favs;
+    $prefs->set('favorites', $favs);
+    $log->debug("Favorites updated: " . join(", ", @$favs));
 }
 
 sub listFavorites {
     my ($client, $cb, $args) = @_;
 
     my $favs = $prefs->get('favorites') || [];
-
-    my @items = map {
-        {
-            name => "▶ $_",
-            type => 'audio',
-            url  => "twitch://$_",
-        }
-    } @$favs;
-
-    push @items, { name => "No favorites yet" } unless @items;
+    my @items = map { { name => "Play $_", type => 'audio', url => "twitch://$_" } } @$favs;
 
     $cb->({ items => \@items });
 }

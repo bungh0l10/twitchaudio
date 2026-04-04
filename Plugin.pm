@@ -7,7 +7,6 @@ use base qw(Slim::Plugin::OPMLBased);
 use Slim::Utils::Prefs;
 use Slim::Utils::Log;
 use Plugins::TwitchAudio::Twitch;
-use Plugins::TwitchAudio::ProtocolHandler;
 
 my $prefs = preferences('plugin.twitchaudio');
 
@@ -20,17 +19,18 @@ my $log = Slim::Utils::Log->addLogCategory({
 
 sub initPlugin {
     my $class = shift;
-    $log->info("Initializing TwitchAudio plugin");
-
-    Slim::Player::ProtocolHandlers->registerHandler(
-        twitch => 'Plugins::TwitchAudio::ProtocolHandler'
-    );
+    $log->debug("Initializing TwitchAudio plugin");
 
     $class->SUPER::initPlugin(
         feed   => \&handleFeed,
         tag    => 'twitchaudio',
         menu   => 'radios',
         is_app => 1,
+        weight  => 1
+    );
+
+    Slim::Player::ProtocolHandlers->registerHandler(
+        twitch => 'Plugins::TwitchAudio::ProtocolHandler'
     );
 }
 
@@ -41,7 +41,6 @@ sub handleFeed {
 
     my $items = [
         { name => 'Search channel', type => 'search', url => \&searchChannel },
-        { name => 'Favorites', type => 'link', url => \&listFavorites },
     ];
 
     $cb->({ items => $items });
@@ -81,42 +80,14 @@ sub searchChannel {
                 artist => $artist,       # Player zeigt Interpret
                 title  => $title,        # Player zeigt Titel
                 cover  => $cover,        # Player zeigt Cover
-            },
-            {
-                name => "Add to favorites",
-                type => 'link',
-                url  => sub {
-                    addFavorite($artist);
-                    $cb->({ items => [{ name => "Saved: $artist" }] });
-                }
+                image  => $cover,
+                description => $title
+
             }
         ];
 
         $cb->({ items => $items });
     });
-}
-
-# Favorites
-sub addFavorite {
-    my ($channel) = @_;
-    my $favs = $prefs->get('favorites') || [];
-    push @$favs, $channel unless grep { $_ eq $channel } @$favs;
-    $prefs->set('favorites', $favs);
-    $log->debug("Favorites updated: " . join(", ", @$favs));
-}
-
-sub listFavorites {
-    my ($client, $cb, $args) = @_;
-    my $favs = $prefs->get('favorites') || [];
-    my @items = map {
-        {
-            name  => $_,
-            type  => 'audio',
-            url   => "twitch://$_",
-        }
-    } @$favs;
-
-    $cb->({ items => \@items });
 }
 
 1;

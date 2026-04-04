@@ -66,11 +66,10 @@ sub getAudioUrl {
     my $token = $tokenData->{value};
     return unless $sig && $token;
 
-    my $p       = int(rand(1000000));
     my $encoded = uri_escape_utf8($token);
 
     my $playlistUrl = "https://usher.ttvnw.net/api/channel/hls/$channel.m3u8"
-        . "?p=$p&sig=$sig&token=$encoded&allow_audio_only=true&allow_source=true";
+        . "?sig=$sig&token=$encoded&allow_audio_only=true&allow_source=true";
 
     my $m3u = $http->get($playlistUrl);
     return unless $m3u->{success};

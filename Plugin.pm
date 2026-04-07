@@ -45,7 +45,7 @@ sub handleFeed {
     $log->debug("handleFeed called");
 
     my $items = [
-        { name => cstring($client, 'PLUGIN_TWITCH_SEARCH'), type => 'search', url => \&searchChannel },
+        { name => sprintf('%s', cstring($client, 'PLUGIN_TWITCH_SEARCH')), type => 'search', url => \&searchChannel },
     ];
 
     $cb->({ items => $items });

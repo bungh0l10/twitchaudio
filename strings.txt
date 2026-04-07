@@ -11,5 +11,5 @@ PLUGIN_TWITCH_SEARCH
 	EN	Enter twitch channel name
 
 PLUGIN_TWITCH_CHANNEL_DOES_NOT_EXIST
-    EN    Channel does not exist
-    DE    Kanal existiert nicht
+	DE	Kanal existiert nicht
+	EN	Channel does not exist

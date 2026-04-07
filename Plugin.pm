@@ -63,6 +63,8 @@ sub searchChannel {
     Plugins::Twitch::API::getChannel($search, sub {
         my ($data) = @_;
     
+        my $user = $data->{user} if $data;
+
         unless ($user) {
             return $cb->({
                 items => [{

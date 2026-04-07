@@ -4,8 +4,9 @@ use strict;
 use warnings;
 
 use base qw(Slim::Plugin::OPMLBased);
-use Slim::Utils::Prefs;
 use Slim::Utils::Log;
+use Slim::Utils::Prefs;
+use Slim::Utils::Strings qw(string);
 use Plugins::Twitch::API;
 
 my $prefs = preferences('plugin.twitch');

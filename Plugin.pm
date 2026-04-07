@@ -54,48 +54,54 @@ sub handleFeed {
 # Search channel and fetch info
 sub searchChannel {
     my ($client, $cb, $args) = @_;
+
     my $search = $args->{search} || '';
     $search =~ s/^\s+|\s+$//g;
     $search = lc $search;
 
     $log->info("Search query: $search");
 
+    # API-Aufruf zum Twitch-Kanal
     Plugins::Twitch::API::getChannel($search, sub {
         my ($data) = @_;
-    
         my $user = $data->{user} if $data;
 
+        # Kanal existiert nicht
         unless ($user) {
             return $cb->({
                 items => [{
                     name => cstring($client, 'PLUGIN_TWITCH_CHANNEL_DOES_NOT_EXIST'),
+                    type => 'link',
                 }]
             });
         }
 
-        my $online = $user && $user->{stream} ? 1 : 0;
+        # Kanalstatus
+        my $online = $user->{stream} ? 1 : 0;
 
-        # Twitch-Daten
+        # Metadaten
         my $title  = $online ? $user->{stream}{title} : "Offline";
-        my $cover  = $user ? $user->{profileImageURL} : "";
-        my $artist = $user ? $user->{login} : $search;  # echter Kanalname als Artist
+        my $cover  = $user->{profileImageURL} || '';
+        my $artist = $user->{login};
 
-        my $url;
-        if ($online) {
-            $url = Plugins::Twitch::API::getAudioUrl($artist);
-        }
+        # Stream/Audio-URL (wenn online)
+        my $url = $online ? Plugins::Twitch::API::getAudioUrl($artist) : "twitch://$artist";
 
+        # OPML-Item für LMS
         my $items = [
             {
-                name   => $artist,       # Anzeigename in der Liste
-                type   => $online ? 'audio' : 'link',
-                url    => $url || "twitch://$artist",
-                artist => $artist,       # Player zeigt Interpret
-                title  => $title,        # Player zeigt Titel
-                cover  => $cover,        # Player zeigt Cover
-                image  => $cover,
-                description => $title
-
+                name        => $artist,       # Kanalname in Liste
+                type        => 'audio',       # Player weiß, dass Audio kommt
+                favorites_type => 'audio',
+                play        => $url,          # URL zum Abspielen
+                on_select   => 'play',
+                image       => $cover,        # Cover wird in Playlist angezeigt
+                artist      => $artist,       # Player zeigt Interpret
+                title       => $title,        # Player zeigt Titel
+                description => $title,        # Hover/Tooltip
+                line1       => $title,        # Playlist Zeile 1
+                line2       => $artist,       # Playlist Zeile 2
+                duration    => 0,             # optional, wenn unbekannt
             }
         ];
 

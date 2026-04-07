@@ -1,13 +1,13 @@
 <?xml version='1.0' standalone='yes'?>
 <extension>
-    <name>PLUGIN_TWITCHAUDIO</name>
+    <name>PLUGIN_TWITCH_NAME</name>
     <description>PLUGIN_TWITCH_DESCRIPTION</description>
-    <module>Plugins::TwitchAudio::Plugin</module>
+    <module>Plugins::Twitch::Plugin</module>
     <category>musicservices</category>
     <onlineLibrary>false</onlineLibrary>
     <defaultState>enabled</defaultState>
     <creator>bungh0l10</creator>
-    <version>0.0.0.29</version>
+    <version>0.0.0.30</version>
     <targetApplication>
         <id>SqueezeCenter</id>
         <minVersion>7.7</minVersion>

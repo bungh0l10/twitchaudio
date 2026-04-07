@@ -1,7 +1,11 @@
-PLUGIN_TWITCHAUDIO
-	DE	TwitchAudio
-	EN	TwitchAudio
+PLUGIN_TWITCH_NAME
+	DE	Twitch
+	EN	Twitch
 
-PLUGIN_TWITCHAUDIO_DESCRIPTION
-	DE	Plugin to listen to twitch streams
-	EN	Plugin to listen to twitch streams
+PLUGIN_TWITCH_DESCRIPTION
+	DE	Höre twitch streams über LMS
+	EN	Listen to twitch streams via LMS
+
+PLUGIN_TWITCH_SEARCH
+	DE	Gib den twitch Kanalnamen ein
+	EN	Enter twitch channel name

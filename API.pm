@@ -1,4 +1,4 @@
-package Plugins::TwitchAudio::Twitch;
+package Plugins::Twitch::API;
 
 use strict;
 use warnings;
@@ -7,7 +7,7 @@ use JSON::PP;
 use URI::Escape qw(uri_escape_utf8);
 use Slim::Utils::Log qw(logger);
 
-my $log = logger('plugin.twitchaudio');
+my $log = logger('plugin.twitch');
 my $http = HTTP::Tiny->new(timeout => 8);
 my $CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 

@@ -1,13 +1,13 @@
-package Plugins::TwitchAudio::ProtocolHandler;
+package Plugins::Twitch::ProtocolHandler;
 
 use strict;
 use warnings;
 
 use base qw(Slim::Player::Protocols::HTTPS);
 use Slim::Utils::Log;
-use Plugins::TwitchAudio::Twitch;
+use Plugins::Twitch::API;
 
-my $log = Slim::Utils::Log->logger('plugin.twitchaudio');
+my $log = Slim::Utils::Log->logger('plugin.twitch');
 
 sub new {
     my ($class, $args) = @_;
@@ -20,7 +20,7 @@ sub new {
 
     # twitch://channel → getAudioUrl
     my ($channel) = $url =~ m|twitch://(.+)|;
-    my $streamUrl = Plugins::TwitchAudio::Twitch::getAudioUrl($channel);
+    my $streamUrl = Plugins::Twitch::API::getAudioUrl($channel);
 
     unless ($streamUrl) {
         $log->warn("No stream URL available for $channel");

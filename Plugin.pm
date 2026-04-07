@@ -1,4 +1,4 @@
-package Plugins::TwitchAudio::Plugin;
+package Plugins::Twitch::Plugin;
 
 use strict;
 use warnings;
@@ -6,31 +6,35 @@ use warnings;
 use base qw(Slim::Plugin::OPMLBased);
 use Slim::Utils::Prefs;
 use Slim::Utils::Log;
-use Plugins::TwitchAudio::Twitch;
+use Plugins::Twitch::API;
 
-my $prefs = preferences('plugin.twitchaudio');
+my $prefs = preferences('plugin.twitch');
 
 my $log = Slim::Utils::Log->addLogCategory({
-    category     => 'plugin.twitchaudio',
+    category     => 'plugin.twitch',
     defaultLevel => 'DEBUG',
-    description  => 'TwitchAudio Plugin',
+    description  => 'PLUGIN_TWITCH_DESCRIPTION',
     logGroups    => 'SCANNER',
 });
 
+sub getDisplayName {
+    return 'PLUGIN_TWITCH_NAME'
+}
+
 sub initPlugin {
     my $class = shift;
-    $log->debug("Initializing TwitchAudio plugin");
+    $log->debug("Initializing Twitch plugin");
 
     $class->SUPER::initPlugin(
         feed   => \&handleFeed,
-        tag    => 'twitchaudio',
+        tag    => 'twitch',
         menu   => 'radios',
         is_app => 1,
         weight  => 1
     );
 
     Slim::Player::ProtocolHandlers->registerHandler(
-        twitch => 'Plugins::TwitchAudio::ProtocolHandler'
+        twitch => 'Plugins::Twitch::ProtocolHandler'
     );
 }
 
@@ -40,7 +44,7 @@ sub handleFeed {
     $log->debug("handleFeed called");
 
     my $items = [
-        { name => 'Search channel', type => 'search', url => \&searchChannel },
+        { name => 'PLUGIN_TWITCH_SEARCH', type => 'search', url => \&searchChannel },
     ];
 
     $cb->({ items => $items });
@@ -57,7 +61,7 @@ sub searchChannel {
 
     $log->info("Search query: $search");
 
-    Plugins::TwitchAudio::Twitch::getChannel($search, sub {
+    Plugins::Twitch::Twitch::getChannel($search, sub {
         my ($data) = @_;
         my $user   = $data->{user} if $data;
         my $online = $user && $user->{stream} ? 1 : 0;
@@ -69,7 +73,7 @@ sub searchChannel {
 
         my $url;
         if ($online) {
-            $url = Plugins::TwitchAudio::Twitch::getAudioUrl($artist);
+            $url = Plugins::Twitch::API::getAudioUrl($artist);
         }
 
         my $items = [

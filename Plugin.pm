@@ -6,7 +6,7 @@ use warnings;
 use base qw(Slim::Plugin::OPMLBased);
 use Slim::Utils::Log;
 use Slim::Utils::Prefs;
-use Slim::Utils::Strings qw(string);
+use Slim::Utils::Strings qw(string  cstring);
 use Plugins::Twitch::API;
 
 my $prefs = preferences('plugin.twitch');
@@ -45,7 +45,7 @@ sub handleFeed {
     $log->debug("handleFeed called");
 
     my $items = [
-        { name => string('PLUGIN_TWITCH_SEARCH'), type => 'search', url => \&searchChannel },
+        { name => cstring($client, 'PLUGIN_TWITCH_SEARCH'), type => 'search', url => \&searchChannel },
     ];
 
     $cb->({ items => $items });

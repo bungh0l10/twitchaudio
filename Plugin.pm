@@ -62,7 +62,15 @@ sub searchChannel {
 
     Plugins::Twitch::API::getChannel($search, sub {
         my ($data) = @_;
-        my $user   = $data->{user} if $data;
+    
+        unless ($user) {
+            return $cb->({
+                items => [{
+                    name => cstring($client, 'PLUGIN_TWITCH_CHANNEL_DOES_NOT_EXIST'),
+                }]
+            });
+        }
+
         my $online = $user && $user->{stream} ? 1 : 0;
 
         # Twitch-Daten

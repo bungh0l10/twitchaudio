@@ -45,7 +45,7 @@ sub handleFeed {
     $log->debug("handleFeed called");
 
     my $items = [
-        { name => sprintf('%s', cstring($client, 'PLUGIN_TWITCH_SEARCH')), type => 'search', url => \&searchChannel },
+        { name => cstring($client, 'PLUGIN_TWITCH_SEARCH'), type => 'search', url => \&searchChannel },
     ];
 
     $cb->({ items => $items });
@@ -58,11 +58,9 @@ sub searchChannel {
     $search =~ s/^\s+|\s+$//g;
     $search = lc $search;
 
-    return $cb->({ items => [{ name => "Enter a channel name" }] }) unless $search;
-
     $log->info("Search query: $search");
 
-    Plugins::Twitch::Twitch::getChannel($search, sub {
+    Plugins::Twitch::API::getChannel($search, sub {
         my ($data) = @_;
         my $user   = $data->{user} if $data;
         my $online = $user && $user->{stream} ? 1 : 0;

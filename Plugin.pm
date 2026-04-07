@@ -64,7 +64,7 @@ sub searchChannel {
     # API-Aufruf zum Twitch-Kanal
     Plugins::Twitch::API::getChannel($search, sub {
         my ($data) = @_;
-        my $user = $data->{user} if $data;
+        my $user = $data->{user} // undef;
 
         # Kanal existiert nicht
         unless ($user) {
@@ -77,15 +77,13 @@ sub searchChannel {
         }
 
         # Kanalstatus
-        my $online = $user->{stream} ? 1 : 0;
-
-        # Metadaten
-        my $title  = $online ? $user->{stream}{title} : "Offline";
+        my $stream = $user->{stream} // undef;
+        my $title  = $stream ? $stream->{title} : 'Offline';
         my $cover  = $user->{profileImageURL} || '';
         my $artist = $user->{login};
 
         # Stream/Audio-URL (wenn online)
-        my $url = $online ? Plugins::Twitch::API::getAudioUrl($artist) : "twitch://$artist";
+        my $url = $stream ? Plugins::Twitch::API::getAudioUrl($artist) : undef;
 
         # OPML-Item für LMS
         my $items = [

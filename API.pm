@@ -68,7 +68,7 @@ sub getAudioUrl {
 
     my $encoded = uri_escape_utf8($token);
 
-    my $playlistUrl = "https://usher.ttvnw.net/api/channel/hls/$channel.m3u8"
+    my $playlistUrl = "https://usher.ttvnw.net/v2/api/channel/hls/$channel.m3u8"
         . "?sig=$sig&token=$encoded&allow_audio_only=true&allow_source=true";
 
     my $m3u = $http->get($playlistUrl);

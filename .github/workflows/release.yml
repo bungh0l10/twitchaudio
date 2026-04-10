@@ -1,0 +1,122 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Set Version
+        id: set-version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f install.xml ]]; then
+            printf '%s\n' "install.xml not found" >&2
+            exit 1
+          fi
+
+          version="$(grep -oP '(?<=<version>)[^<]+' install.xml || true)"
+
+          if [[ -z "${version}" ]]; then
+            printf '%s\n' "Version not found in install.xml" >&2
+            exit 1
+          fi
+
+          printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check if tag already exists
+        id: tag-check
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${{ steps.set-version.outputs.version }}"
+
+          if git ls-remote --tags origin "refs/tags/${version}" | grep -q .; then
+            printf '%s\n' "Tag ${version} already exists"
+            printf 'exists=true\n' >> "${GITHUB_OUTPUT}"
+          else
+            printf 'exists=false\n' >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Zip Repository
+        if: steps.tag-check.outputs.exists == 'false'
+        id: zip
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -f TWITCH.zip
+          zip -r TWITCH.zip API *.pm HTML Settings install.xml strings.txt README.md
+
+      - name: Setup Perl
+        if: steps.tag-check.outputs.exists == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo apt update
+          sudo apt install -y \
+            libxml-simple-perl \
+            libdigest-sha-perl
+
+      - name: Update SHA and Version in repo.xml
+        if: steps.tag-check.outputs.exists == 'false'
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${{ steps.set-version.outputs.version }}"
+          url="https://github.com/${{ github.repository }}/releases/download/${version}"
+
+          perl repo/release.pl repo/repo.xml "${version}" TWITCH.zip "${url}"
+
+      - name: Update Repository
+        if: steps.tag-check.outputs.exists == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add repo/repo.xml
+
+          if git diff --cached --quiet; then
+            printf '%s\n' "No changes to commit"
+          else
+            git commit -m "Update repo.xml for release ${{ steps.set-version.outputs.version }}"
+            git push origin HEAD:main
+          fi
+
+      - name: Create Release
+        if: steps.tag-check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.set-version.outputs.version }}
+          name: Version ${{ steps.set-version.outputs.version }}
+          body: TWITCH plugin release
+          draft: false
+          prerelease: false
+          files: TWITCH.zip
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Skip message (already released)
+        if: steps.tag-check.outputs.exists == 'true'
+        shell: bash
+        run: |
+          printf '%s\n' "Release already exists - skipping all steps"

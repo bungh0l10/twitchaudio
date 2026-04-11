@@ -39,7 +39,6 @@ sub initPlugin {
     );
 }
 
-# Main menu
 sub handleFeed {
     my ($client, $cb, $args) = @_;
     $log->debug("handleFeed called");
@@ -51,7 +50,6 @@ sub handleFeed {
     $cb->({ items => $items });
 }
 
-# Search channel and fetch info
 sub searchChannel {
     my ($client, $cb, $args) = @_;
 
@@ -61,7 +59,6 @@ sub searchChannel {
 
     $log->info("Search query: $search");
 
-    # API-Aufruf zum Twitch-Kanal
     Plugins::Twitch::API::getChannel($search, sub {
         my ($data) = @_;
         my $user = $data->{user} // undef;
@@ -76,30 +73,24 @@ sub searchChannel {
             });
         }
 
-        # Kanalstatus
         my $stream = $user->{stream} // undef;
         my $title  = $stream ? $stream->{title} : 'Offline';
         my $cover  = $user->{profileImageURL} || '';
         my $artist = $user->{login};
 
-        # Stream/Audio-URL (wenn online)
         my $url = $stream ? Plugins::Twitch::API::getAudioUrl($artist) : undef;
 
-        # OPML-Item für LMS
         my $items = [
             {
-                name        => $artist,       # Kanalname in Liste
-                type        => 'audio',       # Player weiß, dass Audio kommt
+                type           => 'audio',
                 favorites_type => 'audio',
-                play        => $url,          # URL zum Abspielen
-                on_select   => 'play',
-                image       => $cover,        # Cover wird in Playlist angezeigt
-                artist      => $artist,       # Player zeigt Interpret
-                title       => $title,        # Player zeigt Titel
-                description => $title,        # Hover/Tooltip
-                line1       => $title,        # Playlist Zeile 1
-                line2       => $artist,       # Playlist Zeile 2
-                duration    => 0,             # optional, wenn unbekannt
+                play           => 'twitch://' . $artist,
+                name           => $artist,
+                line1          => $artist,
+                line2          => $title,
+                image          => $cover,
+                on_select      => 'play',
+                duration       => 0,
             }
         ];
 

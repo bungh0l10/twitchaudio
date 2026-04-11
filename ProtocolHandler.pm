@@ -3,32 +3,80 @@ package Plugins::Twitch::ProtocolHandler;
 use strict;
 use warnings;
 
-use base qw(Slim::Player::Protocols::HTTPS);
-use Slim::Utils::Log;
-use Plugins::Twitch::API;
+use parent qw(Slim::Player::Protocols::HTTPS);
 
-my $log = Slim::Utils::Log->logger('plugin.twitch');
+use Slim::Utils::Log qw(logger);
+use Slim::Utils::Scanner::Remote ();
+use Slim::Control::Request ();
 
-sub new {
-    my ($class, $args) = @_;
-    my $url = $args->{url};
+use Plugins::Twitch::API ();
 
-    # Already HTTP/HTTPS → direkt abspielen
-    if ($url =~ /^https/) {
-        return $class->SUPER::new($args);
+my $log = logger('plugin.twitch');
+
+
+sub scanUrl {
+    my ($class, $uri, $args) = @_;
+
+    return unless defined $uri && defined $args;
+
+    my $channel = _channelFromUri($uri);
+    return unless defined $channel;
+
+    my $client = $args->{client};
+    return unless defined $client;
+
+    Plugins::Twitch::API::getChannel(
+        $channel,
+        sub {
+            my ($data) = @_;
+            return unless defined $data;
+
+            my $user   = $data->{user}   || {};
+            my $stream = $user->{stream} || {};
+
+            my $url = Plugins::Twitch::API::getAudioUrl($channel);
+            return unless defined $url;
+
+            Slim::Utils::Scanner::Remote->scanURL($url, $args);
+
+            my $song = $client->playingSong;
+            return unless defined $song;
+
+            my $cover = $user->{profileImageURL} || q{};
+
+            my $meta = {
+                title  => $stream->{title},
+                artist => $user->{login},
+                cover  => $cover,
+                icon   => $cover,
+                name   => q{},
+            };
+
+            $song->pluginData({ wmaMeta => $meta });
+
+            Slim::Control::Request::notifyFromArray(
+                $client,
+                ['newmetadata'],
+            );
+
+            return;
+        },
+    );
+
+    return;
+}
+
+
+sub _channelFromUri {
+    my ($uri) = @_;
+
+    return unless defined $uri;
+
+    if ( $uri =~ m{^twitch://([^/]+)} ) {
+        return lc $1;
     }
 
-    # twitch://channel → getAudioUrl
-    my ($channel) = $url =~ m|twitch://(.+)|;
-    my $streamUrl = Plugins::Twitch::API::getAudioUrl($channel);
-
-    unless ($streamUrl) {
-        $log->warn("No stream URL available for $channel");
-        return;
-    }
-
-    $args->{url} = $streamUrl;
-    return $class->SUPER::new($args);
+    return;
 }
 
 1;

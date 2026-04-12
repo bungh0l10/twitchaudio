@@ -1,7 +1,7 @@
 <?xml version='1.0' standalone='yes'?>
 <extensions>
   <plugins>
-    <plugin maxTarget="*" name="Twitch" version="0.0.0.42" minTarget="7.7">
+    <plugin maxTarget="*" name="Twitch" version="0.0.0.43" minTarget="7.7">
       <title lang="EN">Twitch</title>
       <desc lang="EN">Audio-only Twitch Streaming Plugin for LMS</desc>
       <category>musicservices</category>

@@ -3,7 +3,7 @@ package Plugins::Twitch::Plugin;
 use strict;
 use warnings;
 
-use base qw(Slim::Plugin::OPMLBased);
+use parent qw(Slim::Plugin::OPMLBased);
 
 use Slim::Utils::Log;
 use Slim::Utils::Prefs;
@@ -12,11 +12,15 @@ use Slim::Utils::Cache;
 
 use Plugins::Twitch::API;
 
+use constant {
+    PLAYBACK_CACHE_TTL => 3600,
+};
+
 my $prefs = preferences('plugin.twitch');
 
 my $log = Slim::Utils::Log->addLogCategory({
     category     => 'plugin.twitch',
-    defaultLevel => 'DEBUG',
+    defaultLevel => 'INFO',
     description  => 'PLUGIN_TWITCH_DESCRIPTION',
     logGroups    => 'SCANNER',
 });
@@ -33,7 +37,7 @@ sub initPlugin {
         tag    => 'twitch',
         menu   => 'radios',
         is_app => 1,
-        weight => 1
+        weight => 1,
     );
 
     Slim::Player::ProtocolHandlers->registerHandler(
@@ -46,9 +50,9 @@ sub initPlugin {
 sub handleFeed {
     my ($client, $cb, $args) = @_;
 
-    my $items = _buildRootItems($client);
-
-    $cb->({ items => $items });
+    $cb->({
+        items => [ _buildMainMenu($client) ],
+    });
 
     return;
 }
@@ -56,19 +60,24 @@ sub handleFeed {
 sub searchChannel {
     my ($client, $cb, $args) = @_;
 
-    my $query = _normalizeQuery($args->{search});
+    my $query = _normalizeSearchQuery($args->{search});
+
+    return _channelDoesNotExist($client, $cb)
+        unless $query;
 
     Plugins::Twitch::API::getChannel($query, sub {
         my ($data) = @_;
 
-        return _handleNoUser($client, $cb)
+        return _channelDoesNotExist($client, $cb)
             unless $data && $data->{user};
 
-        my $item = _buildChannelItem($data->{user});
+        my $channel = _buildChannelData($data->{user});
 
-        _cacheMetadata($item->{artist}, $item);
+        _cachePlayback($channel);
 
-        $cb->({ items => [$item] });
+        $cb->({
+            items => [ _buildChannelUiItem($channel) ],
+        });
 
         return;
     });
@@ -76,80 +85,81 @@ sub searchChannel {
     return;
 }
 
-sub _buildRootItems {
+sub _buildMainMenu {
     my ($client) = @_;
 
-    return [
-        {
-            name => cstring($client, 'PLUGIN_TWITCH_SEARCH'),
-            type => 'search',
-            url  => \&searchChannel
-        }
-    ];
+    return {
+        name => cstring($client, 'PLUGIN_TWITCH_SEARCH'),
+        type => 'search',
+        url  => \&searchChannel,
+    };
 }
 
-sub _handleNoUser {
+sub _channelDoesNotExist {
     my ($client, $cb) = @_;
 
     $cb->({
         items => [{
             name => cstring($client, 'PLUGIN_TWITCH_CHANNEL_DOES_NOT_EXIST'),
             type => 'link',
-        }]
+        }],
     });
 
     return;
 }
 
-sub _buildChannelItem {
-    my ($user) = @_;
-
-    my $stream = $user->{stream} || {};
-
-    my $artist = lc($user->{login} || '');
-    my $title  = $stream->{title} || 'Offline';
-    my $cover  = $user->{profileImageURL} || '';
+sub _buildChannelUiItem {
+    my ($channel) = @_;
 
     return {
-        type           => 'audio',
-        favorites_type => 'audio',
-        play           => 'twitch://' . $artist,
-        name           => $artist,
-        line1          => $artist,
-        line2          => $title,
-        image          => $cover,
-        on_select      => 'play',
-        duration       => 0,
-        artist         => $artist,
+        type             => 'audio',
+        favorites_type   => 'audio',
+        play             => 'twitch://' . $channel->{artist},
+        line1            => $channel->{artist},
+        line2            => $channel->{title},
+        image            => $channel->{cover},
+        on_select        => 'play',
+        duration         => 0,
+        title            => $channel->{title},
+        favorites_title  => $channel->{artist},
     };
 }
 
-sub _cacheMetadata {
-    my ($artist, $item) = @_;
+sub _buildChannelData {
+    my ($user) = @_;
 
-    return unless $artist;
+    my $stream = $user->{stream} // {};
+
+    return {
+        artist  => lc($user->{login} // ''),
+        title => $stream->{title} // 'Offline',
+        cover => $user->{profileImageURL} // '',
+    };
+}
+
+sub _cachePlayback {
+    my ($channel) = @_;
+
+    return unless $channel && $channel->{name};
 
     my $cache = Slim::Utils::Cache->new;
 
     $cache->set(
-        "twitch_meta_$artist",
-        {
-            title  => $item->{line2},
-            artist => $artist,
-            cover  => $item->{image},
-        },
-        60
+        "twitch_playback_$channel->{name}",
+        $channel,
+        PLAYBACK_CACHE_TTL,
     );
 
     return;
 }
 
-sub _normalizeQuery {
+sub _normalizeSearchQuery {
     my ($query) = @_;
 
     return '' unless defined $query;
 
     $query =~ s/^\s+|\s+$//g;
+
     return lc $query;
 }
 

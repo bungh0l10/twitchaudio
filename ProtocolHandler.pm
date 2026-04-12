@@ -5,66 +5,82 @@ use warnings;
 
 use parent qw(Slim::Player::Protocols::HTTPS);
 
-use Slim::Utils::Log qw(logger);
 use Slim::Utils::Scanner::Remote ();
-use Slim::Control::Request ();
 use Slim::Utils::Cache;
-use Slim::Player::Client;
+use Slim::Control::Request ();
 
 use Plugins::Twitch::API ();
 
-my $log = logger('plugin.twitch');
+use constant {
+    PLAYBACK_CACHE_TTL => 3600,
+};
+
+sub canDirectStream {
+    return 1;
+}
+
+sub isAudio {
+    return 1;
+}
+
+sub isRemote {
+    return 1;
+}
+
+sub canSeek {
+    return 0;
+}
+
+sub songBytes {
+    return;
+}
 
 sub scanUrl {
     my ($class, $uri, $args) = @_;
 
-    return unless $uri && $args;
+    return unless $uri && $args && $args->{client};
 
-    my $channel = _extractChannel($uri);
+    my ($channel) = $uri =~ m{^twitch://([^/]+)};
     return unless $channel;
 
-    my $client = _resolveClient($args->{client});
-    return unless $client;
+    my $client = $args->{client};
 
     my $stream_url = Plugins::Twitch::API::getAudioUrl($channel);
     return unless $stream_url;
 
     Slim::Utils::Scanner::Remote->scanURL($stream_url, $args);
 
-    my $cache = Slim::Utils::Cache->new;
-    my $cached_meta = $cache->get("twitch_meta_$channel");
-
-    _applyMetadata($client, $channel, $cached_meta);
+    _applyInitialMetadata($client, $channel);
 
     return;
 }
 
-sub _applyMetadata {
-    my ($client, $channel, $cached_meta) = @_;
+sub _applyInitialMetadata {
+    my ($client, $channel) = @_;
 
-    return unless $client;
+    return unless $client && $channel;
 
-    my $song = eval { $client->playingSong };
+    my $song = $client->playingSong;
     return unless $song;
 
-    if ($cached_meta) {
-        _setSongMetadata($client, $song, $cached_meta);
-        return;
-    }
+    my $cache = Slim::Utils::Cache->new;
+    my $meta  = $cache->get("twitch_playback_$channel");
+
+    return _applyCachedMetadata($client, $song, $meta)
+        if $meta;
 
     Plugins::Twitch::API::getChannel($channel, sub {
         my ($data) = @_;
-        return unless $data;
 
-        my $meta = _buildMetadata($channel, $data);
+        return unless $data && $data->{user};
 
-        my $current_song = eval { $client->playingSong };
+        my $channel_data = _buildChannelData($data->{user}, $channel);
+
+        my $current_song = $client->playingSong;
         return unless $current_song;
 
-        _setSongMetadata($client, $current_song, $meta);
-
-        my $cache = Slim::Utils::Cache->new;
-        $cache->set("twitch_meta_$channel", $meta, 3600);
+        _applyMetadata($client, $current_song, $channel_data);
+        _cachePlayback($channel, $channel_data);
 
         return;
     });
@@ -72,10 +88,20 @@ sub _applyMetadata {
     return;
 }
 
-sub _setSongMetadata {
+sub _applyCachedMetadata {
     my ($client, $song, $meta) = @_;
 
-    return unless $song;
+    return unless $song && $meta;
+
+    _applyMetadata($client, $song, $meta);
+
+    return;
+}
+
+sub _applyMetadata {
+    my ($client, $song, $meta) = @_;
+
+    return unless $song && $meta;
 
     $song->pluginData({ wmaMeta => $meta });
 
@@ -87,37 +113,30 @@ sub _setSongMetadata {
     return;
 }
 
-sub _buildMetadata {
-    my ($channel, $data) = @_;
+sub _buildChannelData {
+    my ($user, $channel) = @_;
 
-    my $user   = $data->{user}   || {};
-    my $stream = $user->{stream} || {};
+    my $stream = $user->{stream} // {};
 
     return {
-        title  => $stream->{title} || 'Offline',
-        artist => $user->{login}   || $channel,
-        cover  => $user->{profileImageURL} || '',
+        title  => $stream->{title} // 'Offline',
+        artist => lc($user->{login} // $channel),
+        cover  => $user->{profileImageURL} // '',
     };
 }
 
-sub _resolveClient {
-    my ($client) = @_;
+sub _cachePlayback {
+    my ($channel, $meta) = @_;
 
-    return unless $client;
+    return unless $channel && $meta;
 
-    return $client if ref $client;
+    my $cache = Slim::Utils::Cache->new;
 
-    return Slim::Player::Client::getClient($client);
-}
-
-sub _extractChannel {
-    my ($uri) = @_;
-
-    return unless $uri;
-
-    if ($uri =~ m{^twitch://([^/]+)}) {
-        return lc $1;
-    }
+    $cache->set(
+        "twitch_playback_$channel",
+        $meta,
+        PLAYBACK_CACHE_TTL,
+    );
 
     return;
 }

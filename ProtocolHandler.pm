@@ -17,7 +17,7 @@ use constant {
 
 sub canDirectStream {
     my ($class, $client, $url) = @_;
-    return 1;
+    return 0;
 }
 
 sub isAudio {
@@ -49,7 +49,10 @@ sub scanUrl {
     my $stream_url = Plugins::Twitch::API::getAudioUrl($channel);
     return unless $stream_url;
 
-    $args->{parser} = 'Plugins::Twitch::MPEGTS';
+    $args->{parser}       = 'Plugins::PlayHLS::HLSPLAY';
+    $args->{contentType}  = 'audio/aac';
+    $args->{streamformat} = 'aac';
+    $args->{noVideo}      = 1;
 
     Slim::Utils::Scanner::Remote->scanURL($stream_url, $args);
 

@@ -71,18 +71,93 @@ sub searchChannel {
         return _channelDoesNotExist($client, $cb)
             unless $data && $data->{user};
 
-        my $channel = _buildChannelData($data->{user});
+        my $user    = $data->{user};
+        my $channel = _buildChannelData($user);
 
         _cachePlayback($channel);
 
-        $cb->({
-            items => [ _buildChannelUiItem($channel) ],
+        Plugins::Twitch::API::getVods($user->{login}, 1, sub {
+            my ($vod_data) = @_;
+
+            my $edges =
+                   $vod_data
+                && $vod_data->{user}
+                && $vod_data->{user}{videos}
+                && $vod_data->{user}{videos}{edges}
+                || [];
+
+            my @items = (
+                _buildChannelUiItem($channel),
+            );
+
+            if (@$edges) {
+                push @items, _buildVodMenuItem($user->{login});
+            }
+
+            $cb->({ items => \@items });
+
+            return;
         });
 
         return;
     });
 
     return;
+}
+
+sub _buildVodMenuItem {
+    my ($login) = @_;
+
+    return {
+        name => 'VODs',
+        type => 'playlist',
+
+        url  => sub {
+            my ($client, $cb) = @_;
+
+            Plugins::Twitch::API::getVods($login, 100, sub {
+                my ($data) = @_;
+
+                my $edges = $data->{user}{videos}{edges} || [];
+
+                unless (@$edges) {
+                    return $cb->({
+                        items => [{
+                            name => 'No VODs found',
+                            type => 'text',
+                        }],
+                    });
+                }
+
+                my @items;
+
+                for my $edge (@$edges) {
+                    my $v = $edge->{node} || next;
+
+                    my $vod_id = $v->{id} || next;
+
+                    push @items, {
+                        type  => 'audio',
+                        name  => $v->{title} || 'Untitled',
+                        line1 => $v->{title} || 'Untitled',
+                        #line2 => $v->{createdAt} || '',
+			icon  => $v->{thumbnailURLs}[0],
+			image => $v->{thumbnailURLs}[0],
+
+                        play  => 'twitch:vod:' . $vod_id,
+
+                        duration => $v->{lengthSeconds} || 0,
+                    };
+                }
+
+                $cb->({ items => \@items });
+
+                return;
+            });
+
+            return;
+        },
+    };
 }
 
 sub _buildMainMenu {
@@ -114,14 +189,14 @@ sub _buildChannelUiItem {
     return {
         type             => 'audio',
         favorites_type   => 'audio',
-        play             => 'twitch://' . $channel->{artist},
+        play             => 'twitch:live:' . $channel->{artist},
         line1            => $channel->{artist},
         line2            => $channel->{title},
         image            => $channel->{cover},
         on_select        => 'play',
         duration         => 0,
         title            => $channel->{title},
-        favorites_title  => $channel->{artist},
+        favorites_title  => $channel->{title},
     };
 }
 

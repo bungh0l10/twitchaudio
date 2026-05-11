@@ -149,7 +149,7 @@ sub getVods {
     $limit ||= 10;
 
     my $data = _post_json({
-        query => 'query($login: String!, $limit: Int!) { user(login: $login) { videos(first: $limit, types: null, sort: TIME) { edges { node { id title createdAt lengthSeconds thumbnailURLs(width: 320, height: 180) } } } } }',
+        query => 'query($login: String!, $limit: Int!) { user(login: $login) { videos(first: $limit, types: HIGHLIGHT, sort: TIME) { edges { node { id title createdAt lengthSeconds thumbnailURLs(width: 320, height: 180) } } } } }',
         variables => {
             login => $login,
             limit => $limit,

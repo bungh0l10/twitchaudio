@@ -3,223 +3,535 @@ package Plugins::Twitch::ProtocolHandler;
 use strict;
 use warnings;
 
+use base qw(IO::Handle);
+
+use List::Util qw(min);
 use parent qw(Slim::Player::Protocols::HTTPS);
 
 use Slim::Utils::Log;
 use Slim::Utils::Scanner::Remote ();
 use Slim::Utils::Cache;
 use Slim::Control::Request ();
+use Slim::Networking::Async::HTTP;
+use Slim::Networking::SimpleAsyncHTTP;
 
 use Plugins::Twitch::API ();
 
-use LWP::UserAgent;
-
-my $log = logger('plugin.twitch');
+use Plugins::Twitch::M4A;
+use Plugins::Twitch::MPEGTS;
+use Plugins::Twitch::HTTP;
 
 use constant {
-    PLAYBACK_CACHE_TTL => 3600,
+    LIVE_CACHE_TTL => 60,
+    VOD_CACHE_TTL  => 86400,
+
+    MIN_OUT   => 8192,
+    DATA_CHUNK => 128 * 1024,
 };
 
-my %AUDIO_PIDS = map { $_ => 1 } qw(256 257 258);
+my $log   = logger('plugin.twitch.protocol');
+my $cache = Slim::Utils::Cache->new('Twitch');
 
-sub _set_hls_args {
-    my ($args) = @_;
+# ------------------------------------------------------------
+# CAPABILITIES
+# ------------------------------------------------------------
+sub canDirectStream { 0 }
+sub isAudio         { 1 }
+sub isRemote        { 1 }
+sub canSeek         { 0 }
+sub songBytes       { 0 }
 
-    @$args{qw(parser contentType streamformat noVideo)} = (
-        'Plugins::PlayHLS::HLSPLAY',
-        'audio/aac',
-        'aac',
-        1,
-    );
+# ------------------------------------------------------------
+# NEW
+# ------------------------------------------------------------
+sub new {
+    my ($class, $args) = @_;
 
-    return;
+    my $song   = $args->{song};
+    my $config = $song->pluginData('config');
+
+    return unless $config;
+
+    my $self = $class->SUPER::new;
+
+    my $vars = {
+        outBuf    => '',
+        streaming => 1,
+        fetching  => 0,
+        retry     => 5,
+        offset    => 0,
+        sessions  => [],
+    };
+
+    ${*$self}{client} = $args->{client};
+    ${*$self}{song}   = $song;
+    ${*$self}{config} = $config;
+    ${*$self}{vars}   = $vars;
+    ${*$self}{stash}  = $song->pluginData('stash') || {};
+
+    return $self;
 }
 
-sub canDirectStream { 0 }
-sub isAudio          { 1 }
-sub isRemote         { 1 }
-sub canSeek          { 0 }
-sub songBytes        { 0 }
+# ------------------------------------------------------------
+# CLOSE
+# ------------------------------------------------------------
+sub close {
+    my $self = shift;
 
+    if (my $sessions = ${*$self}{vars}->{sessions}) {
+        $_->disconnect foreach @$sessions;
+    }
+
+    $self->SUPER::close(@_);
+}
+
+# ------------------------------------------------------------
+# SYSREAD ENTRY
+# ------------------------------------------------------------
+sub sysread {
+    my $self = $_[0];
+
+    my $vars   = ${*$self}{vars};
+    my $config = ${*$self}{config};
+
+    return $config->{sysread}->($self, $vars, $config, @_);
+}
+
+# ------------------------------------------------------------
+# HTTP BYTE STREAM (M4A)
+# ------------------------------------------------------------
+sub sysread_URL {
+    use bytes;
+
+    my ($self, $v, $config) = splice(@_, 0, 3);
+
+    my $handler = $config->{handler};
+
+    if (
+        length($v->{outBuf}) < MIN_OUT
+        && !$v->{fetching}
+        && $v->{streaming}
+    ) {
+
+        my $url = $config->{url};
+
+        my $session = $v->{sessions}->[0]
+            ||= Slim::Networking::Async::HTTP->new;
+
+        my $request = HTTP::Request->new(
+            GET => $url,
+            [
+                'Connection' => 'keep-alive',
+                'Range'      => "bytes=$v->{offset}-"
+                    . ($v->{offset} + DATA_CHUNK - 1),
+            ]
+        );
+
+        $request->protocol('HTTP/1.1');
+
+        $v->{fetching} = 1;
+
+        $session->send_request({
+
+            request => $request,
+
+            onBody => sub {
+                my $response = shift->response;
+
+                $handler->addBytes($response->content_ref);
+
+                my $len = length $response->content;
+
+                $v->{offset} += $len;
+                $v->{fetching} = 0;
+                $v->{retry}    = 5;
+
+                $v->{streaming} = 0
+                    if $len < DATA_CHUNK;
+
+                $log->debug("received m4a chunk: $len");
+            },
+
+            onError => sub {
+                $v->{retry}--;
+                $v->{fetching} = 0;
+
+                $log->error("m4a fetch error");
+            },
+        });
+    }
+
+    $handler->getAudio(\$v->{outBuf})
+        if $handler->bufferLength;
+
+    if (my $bytes = min(length($v->{outBuf}), $_[2])) {
+
+        $_[1] = substr($v->{outBuf}, 0, $bytes, '');
+
+        return $bytes;
+    }
+    elsif ($v->{streaming} && $v->{retry} > 0) {
+
+        $! = EINTR;
+        return undef;
+    }
+
+    return 0;
+}
+
+# ------------------------------------------------------------
+# HLS MPEGTS
+# ------------------------------------------------------------
+sub sysread_HLS_MPEG {
+    use bytes;
+
+    my ($self, $v, $config) = splice(@_, 0, 3);
+
+    my $mpeg    = ${*$self}{stash};
+    my $handler = $config->{handler};
+
+    my $fragments = $mpeg->{fragments};
+
+    if (
+        length($v->{outBuf}) < MIN_OUT
+        && !$v->{fetching}
+        && $v->{streaming}
+    ) {
+
+        my $url = $fragments->[$v->{offset}];
+
+        unless ($url) {
+            $v->{streaming} = 0;
+            goto AUDIO;
+        }
+
+        $v->{fetching} = 1;
+
+        $self->sendRequest(
+            $url,
+            0,
+
+            sub {
+                my $response = shift->response;
+
+                $handler->addBytes($response->content_ref);
+
+                $v->{offset}++;
+                $v->{fetching} = 0;
+                $v->{retry}    = 5;
+
+                $log->debug("received ts fragment");
+            },
+
+            sub {
+                $v->{fetching} = 0;
+                $v->{retry}--;
+
+                $log->error("fragment fetch failed");
+            },
+        );
+    }
+
+AUDIO:
+
+    $handler->getAudio(\$v->{outBuf})
+        if $handler->bufferLength;
+
+    if (my $bytes = min(length($v->{outBuf}), $_[2])) {
+
+        $_[1] = substr($v->{outBuf}, 0, $bytes, '');
+
+        return $bytes;
+    }
+    elsif ($v->{streaming}) {
+
+        $! = EINTR;
+        return undef;
+    }
+
+    return 0;
+}
+
+# ------------------------------------------------------------
+# SEND REQUEST
+# ------------------------------------------------------------
+sub sendRequest {
+    my ($self, $url, $level, $onBody, $onError) = @_;
+
+    my $v = ${*$self}{vars};
+
+    my $request = HTTP::Request->new(
+        GET => $url,
+        ['Connection' => 'keep-alive']
+    );
+
+    $request->protocol('HTTP/1.1');
+
+    my $session = $v->{sessions}->[$level];
+
+    unless ($session) {
+        $session = $v->{sessions}->[$level]
+            = Plugins::Twitch::HTTP->new;
+    }
+
+    $session->send_request({
+
+        request => $request,
+
+        onRedirect => sub {
+            my $redir = shift->uri;
+
+            $self->sendRequest(
+                $redir,
+                $level + 1,
+                $onBody,
+                $onError
+            );
+        },
+
+        onBody => sub {
+            $onBody->(@_);
+        },
+
+        onError => sub {
+            $onError->(@_);
+        },
+    });
+}
+
+# ------------------------------------------------------------
+# HLS PLAYLIST PARSER
+# ------------------------------------------------------------
+sub getHLSFragments {
+    my ($url, $cb) = @_;
+
+    Slim::Networking::SimpleAsyncHTTP->new(
+
+        sub {
+            my $m3u8 = shift->content;
+
+            my @fragments;
+
+            for my $item (split(/#EXTINF/, $m3u8)) {
+
+                next unless $item =~ /[^\n]*\n(\S+\.ts.*)$/m;
+
+                push @fragments, $1;
+            }
+
+            my ($base) = $url =~ m|(^https://[^/]+/)|;
+
+            @fragments = map {
+                /^https/
+                    ? $_
+                    : $base . $_
+            } @fragments;
+
+            $cb->({
+                fragments => \@fragments,
+            });
+        },
+
+        sub {
+            $log->error("cannot load hls playlist");
+            $cb->();
+        },
+
+    )->get($url);
+}
+
+# ------------------------------------------------------------
+# ENTRY POINT
+# ------------------------------------------------------------
 sub scanUrl {
-    my ($class, $uri, $args) = @_;
+    my (undef, $uri, $args) = @_;
 
     return unless $uri && $args && $args->{client};
 
     my $client = $args->{client};
 
-    if ($uri =~ m{^twitch:live:([^:]+)$}) {
-        my $channel = $1;
-
-        my $stream_url = Plugins::Twitch::API::getAudioUrl($channel);
-        return unless $stream_url;
-
-        $log->info("TWITCH LIVE STREAM URL: $stream_url");
-
-        _set_hls_args($args);
-
-        Slim::Utils::Scanner::Remote->scanURL($stream_url, $args);
-
-        _applyInitialMetadata($client, "live:$channel");
-
-        return;
+    if (my ($channel) = $uri =~ /^twitch:live:([^:]+)$/) {
+        return _handleLive($client, $channel, $args);
     }
 
-    if ($uri =~ m{^twitch:vod:(\d+)$}) {
-        my $vod_id = $1;
-
-        my $stream_url = Plugins::Twitch::API::getVodAudioUrl($vod_id);
-        return unless $stream_url;
-
-        $log->info("TWITCH VOD STREAM URL: $stream_url");
-
-        _set_hls_args($args);
-
-        Slim::Utils::Scanner::Remote->scanURL($stream_url, $args);
-
-        # VOD metadata handled separately
-        _applyInitialMetadata($client, "vod:$vod_id");
-
-        return;
+    if (my ($vod_id) = $uri =~ /^twitch:vod:(\d+)$/) {
+        return _handleVod($client, $vod_id, $args);
     }
 
     return;
 }
 
-sub _dump_m3u8_summary {
-    my ($url) = @_;
+# ------------------------------------------------------------
+# LIVE HANDLER
+# ------------------------------------------------------------
+sub _handleLive {
+    my ($client, $channel, $args) = @_;
 
-    my $ua = LWP::UserAgent->new(
-        timeout => 5,
-        agent   => 'Mozilla/5.0',
+    my $stream_url = Plugins::Twitch::API::getAudioUrl($channel)
+        or return;
+
+    $log->info("LIVE STREAM URL: $stream_url");
+
+    return _initStream(
+        $client,
+        $stream_url,
+        $args,
+        "live:$channel"
     );
+}
 
-    my $res = $ua->get($url);
+# ------------------------------------------------------------
+# VOD HANDLER
+# ------------------------------------------------------------
+sub _handleVod {
+    my ($client, $vod_id, $args) = @_;
 
-    unless ($res->is_success) {
-        $log->warn("M3U8 fetch failed: " . $res->status_line);
-        return;
+    my $stream_url = Plugins::Twitch::API::getVodAudioUrl($vod_id)
+        or return;
+
+    $log->info("VOD STREAM URL: $stream_url");
+
+    return _initStream(
+        $client,
+        $stream_url,
+        $args,
+        "vod:$vod_id"
+    );
+}
+
+# ------------------------------------------------------------
+# STREAM INIT
+# ------------------------------------------------------------
+sub _initStream {
+    my ($client, $url, $args, $meta_id) = @_;
+
+    my $song = $args->{song};
+
+    if ($url =~ /\.m3u8/i) {
+
+        getHLSFragments($url, sub {
+
+            my $data = shift or return;
+
+            my $handler = Plugins::Twitch::MPEGTS->new($url);
+
+            my $config = {
+                url      => $url,
+                source   => 'hls-mpeg',
+                format   => 'aac',
+                handler  => $handler,
+                sysread  => \&sysread_HLS_MPEG,
+            };
+
+            $song->pluginData(config => $config);
+            $song->pluginData(stash  => $data);
+
+            $handler->initialize(
+                sub {
+                    _applyInitialMetadata($client, $meta_id);
+                },
+                sub {
+                    $log->error("mpegts init failed");
+                },
+                $data->{fragments}->[0],
+            );
+        });
+
     }
+    else {
 
-    my $content = $res->decoded_content;
+        my $handler = Plugins::Twitch::M4A->new($url);
 
-    my ($seq, $target, $duration, $count);
-    my ($first, $last);
-    my $end = 0;
-    my $prog;
+        my $config = {
+            url      => $url,
+            source   => 'm4a',
+            format   => 'aac',
+            handler  => $handler,
+            sysread  => \&sysread_URL,
+        };
 
-    foreach my $l (split /\n/, $content) {
+        $song->pluginData(config => $config);
 
-        $seq    = $1 if $l =~ /#EXT-X-MEDIA-SEQUENCE:(\d+)/;
-        $target = $1 if $l =~ /#EXT-X-TARGETDURATION:(\d+)/;
-
-        if ($l =~ /#EXTINF:([\d\.]+)/) {
-            $duration = $1;
-            $count++;
-        }
-
-        $first //= $l if $l =~ /^https?:\/\//;
-        $last     = $l if $l =~ /^https?:\/\//;
-
-        $end = 1 if $l =~ /#EXT-X-ENDLIST/;
-
-        $prog = $1 if $l =~ /#EXT-X-PROGRAM-DATE-TIME:(.+)/;
+        $handler->initialize(
+            sub {
+                _applyInitialMetadata($client, $meta_id);
+            },
+            sub {
+                $log->error("m4a init failed");
+            }
+        );
     }
-
-    $log->info("=== M3U8 SUMMARY ===");
-    $log->info("Type: " . ($end ? "VOD" : "LIVE"));
-    $log->info("Seq: $seq");
-    $log->info("Target: $target");
-    $log->info("Seg duration: $duration");
-    $log->info("Segments: $count");
-    $log->info("First: $first");
-    $log->info("Last: $last");
-    $log->info("Program time: $prog");
 
     return;
 }
 
-sub _probe_first_ts {
-    my ($url) = @_;
-
-    my $ua = LWP::UserAgent->new(timeout => 5);
-    my $res = $ua->get($url);
-
-    return unless $res->is_success;
-
-    my $data = $res->content;
-
-    return unless substr($data, 0, 1) eq "\x47";
-
-    my %pid;
-
-    for (my $i = 0; $i < length($data) - 188; $i += 188) {
-        my $p   = ord(substr($data, $i + 1, 1));
-        my $pid = (($p & 0x1F) << 8) + ord(substr($data, $i + 2, 1));
-        $pid{$pid}++;
-    }
-
-    $log->info("=== TS PROBE ===");
-
-    foreach my $k (keys %pid) {
-        $log->info("PID $k => $pid{$k}");
-    }
-
-    my $audio = grep { $AUDIO_PIDS{$_} } keys %pid;
-
-    $log->info("AUDIO DETECTED: " . ($audio ? "YES" : "NO"));
-}
-
+# ------------------------------------------------------------
+# METADATA ENTRY
+# ------------------------------------------------------------
 sub _applyInitialMetadata {
     my ($client, $id) = @_;
 
     return unless $client && $id;
 
     my $song = $client->playingSong or return;
-    my $cache = Slim::Utils::Cache->new;
 
-    if ($id =~ /^vod:(\d+)$/) {
-        my $vod_id = $1;
-
-        my $meta = $cache->get("twitch:vod:$vod_id");
-
-        if ($meta) {
-            $song->pluginData({ wmaMeta => $meta });
-            Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
-            return;
-        }
-
-        Plugins::Twitch::API::getVodMeta($vod_id, sub {
-            my ($vod) = @_;
-
-            return unless $vod;
-
-            my $current = $client->playingSong or return;
-
-            my $meta = {
-                title  => $vod->{title} // 'VOD',
-                artist => $vod->{artist},
-                cover  => $vod->{thumbnail},
-            };
-
-            $current->pluginData({ wmaMeta => $meta });
-            Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
-
-            $cache->set("twitch:vod:$vod_id", $meta, PLAYBACK_CACHE_TTL);
-        });
-
-        return;
+    if (my ($vod_id) = $id =~ /^vod:(\d+)$/) {
+        return _applyVodMetadata($client, $song, $vod_id);
     }
 
-    my ($type, $channel) = split /:/, $id, 2;
-    $channel ||= $id;
+    if (my ($channel) = $id =~ /^live:(.+)$/) {
+        return _applyLiveMetadata($client, $song, $channel);
+    }
 
-    my $meta = $cache->get("twitch:live:$channel");
+    return;
+}
 
-    if ($meta) {
-        $song->pluginData({ wmaMeta => $meta });
-        Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
-        return;
+# ------------------------------------------------------------
+# VOD METADATA
+# ------------------------------------------------------------
+sub _applyVodMetadata {
+    my ($client, $song, $vod_id) = @_;
+
+    my $cache_key = "plugin:twitch:vod:$vod_id";
+
+    if (my $cached = $cache->get($cache_key)) {
+        return _restoreMeta($client, $song, $cached);
+    }
+
+    Plugins::Twitch::API::getVodMeta($vod_id, sub {
+        my ($vod) = @_;
+
+        return unless $vod;
+
+        my $fresh = {
+            artist => ($vod->{artist} // ''),
+            cover  => ($vod->{thumbnail} // ''),
+            title  => ($vod->{title} // 'VOD'),
+        };
+
+        _updateIfChanged(
+            $client,
+            $song,
+            $fresh,
+            $cache,
+            $cache_key,
+            VOD_CACHE_TTL
+        );
+    });
+
+    return;
+}
+
+# ------------------------------------------------------------
+# LIVE METADATA
+# ------------------------------------------------------------
+sub _applyLiveMetadata {
+    my ($client, $song, $channel) = @_;
+
+    my $cache_key = "plugin:twitch:live:$channel";
+
+    if (my $cached = $cache->get($cache_key)) {
+        _restoreMeta($client, $song, $cached);
     }
 
     Plugins::Twitch::API::getChannel($channel, sub {
@@ -229,21 +541,95 @@ sub _applyInitialMetadata {
 
         my $u = $data->{user};
 
-        my $current = $client->playingSong or return;
-
-        my $meta = {
-            title  => $u->{stream}->{title} // 'Offline',
-            artist => lc($u->{login}),
-            cover  => $u->{profileImageURL},
+        my $fresh = {
+            artist => lc($u->{login} // ''),
+            cover  => ($u->{profileImageURL} // ''),
+            title  => (
+                    $u->{stream}
+                &&  $u->{stream}->{title}
+            )
+                ? $u->{stream}->{title}
+                : 'Offline',
         };
 
-        $current->pluginData({ wmaMeta => $meta });
-        Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
-
-        $cache->set("twitch:live:$channel", $meta, PLAYBACK_CACHE_TTL);
+        _updateIfChanged(
+            $client,
+            $song,
+            $fresh,
+            $cache,
+            $cache_key,
+            LIVE_CACHE_TTL
+        );
     });
 
     return;
+}
+
+# ------------------------------------------------------------
+# UPDATE HELPERS
+# ------------------------------------------------------------
+sub _updateIfChanged {
+    my ($client, $song, $fresh, $cache_obj, $key, $ttl) = @_;
+
+    my $old = $song->pluginData('wmaMeta') || {};
+
+    return unless _metadataChanged($old, $fresh);
+
+    my $current = $client->playingSong or return;
+
+    return unless $current == $song;
+
+    $song->pluginData({ wmaMeta => $fresh });
+
+    Slim::Control::Request::notifyFromArray(
+        $client,
+        ['newmetadata']
+    );
+
+    $cache_obj->set($key, $fresh, $ttl);
+
+    return;
+}
+
+sub _restoreMeta {
+    my ($client, $song, $cached) = @_;
+
+    return unless $cached;
+
+    my $current = $client->playingSong or return;
+
+    return unless $current == $song;
+
+    my $old = $song->pluginData('wmaMeta') || {};
+
+    return unless _metadataChanged($old, $cached);
+
+    $song->pluginData({ wmaMeta => $cached });
+
+    Slim::Control::Request::notifyFromArray(
+        $client,
+        ['newmetadata']
+    );
+
+    return;
+}
+
+sub _metadataChanged {
+    my ($old, $new) = @_;
+
+    $old ||= {};
+    $new ||= {};
+
+    return 1
+        if ($old->{title} // '') ne ($new->{title} // '');
+
+    return 1
+        if ($old->{artist} // '') ne ($new->{artist} // '');
+
+    return 1
+        if ($old->{cover} // '') ne ($new->{cover} // '');
+
+    return 0;
 }
 
 1;

@@ -4,31 +4,36 @@ use strict;
 use warnings;
 
 use HTTP::Tiny;
-use JSON::PP qw(encode_json decode_json);
+use JSON::XS::VersionOneAndTwo ();
 use URI::Escape qw(uri_escape_utf8);
 use Try::Tiny;
 use Slim::Utils::Log qw(logger);
 
 use constant {
-    HTTP_TIMEOUT => 10,
+    CLIENT_ID           => 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+    DEFAULT_VOD_LIMIT   => 10,
+    HTTP_TIMEOUT        => 10,
 };
+
+my $http = HTTP::Tiny->new(
+    timeout => HTTP_TIMEOUT,
+);
 
 my $log = logger('plugin.twitch');
 
-my $http = HTTP::Tiny->new(timeout => HTTP_TIMEOUT);
-my $CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
-
-sub _post_json {
+sub _postJson {
     my ($payload) = @_;
+
+    $log->debug("Sending payload to Twitch API: " . JSON::XS::VersionOneAndTwo::encode_json($payload));
 
     my $res = $http->post(
         'https://gql.twitch.tv/gql',
         {
             headers => {
-                'Client-ID'    => $CLIENT_ID,
+                'Client-ID'    => CLIENT_ID,
                 'Content-Type' => 'application/json',
             },
-            content => encode_json($payload),
+            content => JSON::XS::VersionOneAndTwo::encode_json($payload),
         }
     );
 
@@ -37,48 +42,61 @@ sub _post_json {
             'HTTP POST failed: '
           . ($res->{status} // '?') . ' '
           . ($res->{reason} // '')
+          . ($res->{content} ? " | Content: $res->{content}" : '')
         );
         return;
     }
 
     my $data;
-
     try {
-        $data = decode_json($res->{content});
+        $data = JSON::XS::VersionOneAndTwo::decode_json($res->{content});
     }
     catch {
-        $log->warn("JSON decode failed: $_");
+        $log->warn("JSON decode failed: $_ | Content: $res->{content}");
         return;
     };
 
     return $data;
 }
 
-sub _extract_audio_m3u8 {
+sub _extractAudioM3u8 {
     my ($content) = @_;
-
     return unless $content;
 
     my @lines = split /\n/, $content;
 
     for (my $i = 0; $i < @lines; $i++) {
-        next unless $lines[$i] =~ /\baudio_only\b/i;
+        next unless defined $lines[$i] && $lines[$i] =~ /\baudio_only\b/i;
 
         for my $j ($i + 1 .. $#lines) {
+            next unless defined $lines[$j] && length $lines[$j];
             return $lines[$j] if $lines[$j] =~ m{^https://};
         }
     }
 
+    $log->warn("No audio_only URL found in m3u8 content");
     return;
 }
 
 sub getChannel {
     my ($login, $callback) = @_;
-
+    return unless $callback && ref $callback eq 'CODE';
     return $callback->() unless $login;
 
-    my $data = _post_json({
-        query => 'query($login: String!) { user(login: $login) { id login profileImageURL(width: 300) stream { title viewersCount } } }',
+    my $data = _postJson({
+        query => '
+            query($login: String!) {
+                user(login: $login) {
+                    id
+                    login
+                    profileImageURL(width: 300)
+                    stream {
+                        title
+                        viewersCount
+                    }
+                }
+            }
+        ',
         variables => { login => $login },
     });
 
@@ -88,18 +106,33 @@ sub getChannel {
     };
 
     $log->debug("getChannel OK for $login");
-
     return $callback->($root);
 }
 
 sub getAudioUrl {
     my ($channel) = @_;
-
     return unless $channel;
 
-    my $data = _post_json({
+    my $data = _postJson({
         operationName => 'PlaybackAccessToken_Template',
-        query => 'query PlaybackAccessToken_Template($login: String!, $playerType: String!) { streamPlaybackAccessToken(channelName: $login, params: { platform: "web", playerBackend: "mediaplayer", playerType: $playerType }) { signature value } }',
+        query => '
+            query PlaybackAccessToken_Template(
+                $login: String!,
+                $playerType: String!
+            ) {
+                streamPlaybackAccessToken(
+                    channelName: $login,
+                    params: {
+                        platform: "web",
+                        playerBackend: "mediaplayer",
+                        playerType: $playerType
+                    }
+                ) {
+                    signature
+                    value
+                }
+            }
+        ',
         variables => {
             login      => $channel,
             playerType => 'embed',
@@ -130,12 +163,12 @@ sub getAudioUrl {
         $log->warn(
             "Failed to fetch m3u8 for $channel: "
           . ($res->{status} // '?')
+          . ($res->{content} ? " | Content: $res->{content}" : '')
         );
         return;
     }
 
-    my $audio = _extract_audio_m3u8($res->{content});
-
+    my $audio = _extractAudioM3u8($res->{content});
     $log->debug("audio_only URL: $audio") if $audio;
 
     return $audio;
@@ -143,13 +176,33 @@ sub getAudioUrl {
 
 sub getVods {
     my ($login, $limit, $callback) = @_;
-
+    return unless $callback && ref $callback eq 'CODE';
     return $callback->() unless $login;
 
-    $limit ||= 10;
+    $limit ||= DEFAULT_VOD_LIMIT;
 
-    my $data = _post_json({
-        query => 'query($login: String!, $limit: Int!) { user(login: $login) { videos(first: $limit, types: HIGHLIGHT, sort: TIME) { edges { node { id title createdAt lengthSeconds thumbnailURLs(width: 320, height: 180) } } } } }',
+    my $data = _postJson({
+        query => '
+            query($login: String!, $limit: Int!) {
+                user(login: $login) {
+                    videos(
+                        first: $limit,
+                        types: HIGHLIGHT,
+                        sort: TIME
+                    ) {
+                        edges {
+                            node {
+                                id
+                                title
+                                createdAt
+                                lengthSeconds
+                                thumbnailURLs(width: 320, height: 180)
+                            }
+                        }
+                    }
+                }
+            }
+        ',
         variables => {
             login => $login,
             limit => $limit,
@@ -166,10 +219,9 @@ sub getVods {
 
 sub getVodAudioUrl {
     my ($vod_id) = @_;
-
     return unless $vod_id;
 
-    my $data = _post_json({
+    my $data = _postJson({
         operationName => 'PlaybackAccessToken',
         extensions => {
             persistedQuery => {
@@ -178,8 +230,8 @@ sub getVodAudioUrl {
             }
         },
         variables => {
-            isLive     => JSON::PP::false,
-            isVod      => JSON::PP::true,
+            isLive     => \0,
+            isVod      => \1,
             vodID      => $vod_id,
             login      => '',
             platform   => 'web',
@@ -188,7 +240,6 @@ sub getVodAudioUrl {
     });
 
     my $root = $data->{data} or return;
-
     my $token = $root->{videoPlaybackAccessToken} or do {
         $log->warn("No VOD token for $vod_id");
         return;
@@ -196,13 +247,13 @@ sub getVodAudioUrl {
 
     return unless $token->{signature} && $token->{value};
 
-    my $sig   = $token->{signature};
-    my $value = uri_escape_utf8($token->{value});
+    my $nauthsig   = $token->{signature};
+    my $nauth = uri_escape_utf8($token->{value});
 
     my $url =
         "https://usher.ttvnw.net/vod/v2/$vod_id.m3u8"
-      . "?nauthsig=$sig"
-      . "&nauth=$value"
+      . "?nauthsig=$nauthsig"
+      . "&nauth=$nauth"
       . "&allow_audio_only=true"
       . "&allow_source=true";
 
@@ -212,19 +263,20 @@ sub getVodAudioUrl {
         $log->warn(
             "Failed to fetch VOD m3u8 for $vod_id: "
           . ($res->{status} // '?')
+          . ($res->{content} ? " | Content: $res->{content}" : '')
         );
         return;
     }
 
-    return _extract_audio_m3u8($res->{content});
+    return _extractAudioM3u8($res->{content});
 }
 
 sub getVodMeta {
     my ($vod_id, $callback) = @_;
-
+    return unless $callback && ref $callback eq 'CODE';
     return $callback->() unless $vod_id;
 
-    my $data = _post_json({
+    my $data = _postJson({
         query => '
             query($id: ID!) {
                 video(id: $id) {
@@ -237,13 +289,10 @@ sub getVodMeta {
                 }
             }
         ',
-        variables => {
-            id => "$vod_id",
-        },
+        variables => { id => "$vod_id" },
     });
 
     my $root = $data->{data} or return $callback->();
-
     my $v = $root->{video} or do {
         $log->warn("No VOD meta for $vod_id");
         return $callback->();

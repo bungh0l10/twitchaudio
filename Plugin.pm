@@ -74,24 +74,33 @@ sub searchChannel {
         my $user    = $data->{user};
         my $channel = _buildChannelData($user);
 
-        _cachePlayback($channel);
-
         Plugins::Twitch::API::getVods($user->{login}, 1, sub {
             my ($vod_data) = @_;
 
-            my $edges =
+            my $highlights =
                    $vod_data
                 && $vod_data->{user}
-                && $vod_data->{user}{videos}
-                && $vod_data->{user}{videos}{edges}
+                && $vod_data->{user}{highlights}
+                && $vod_data->{user}{highlights}{edges}
+                || [];
+
+            my $archives =
+                   $vod_data
+                && $vod_data->{user}
+                && $vod_data->{user}{archives}
+                && $vod_data->{user}{archives}{edges}
                 || [];
 
             my @items = (
                 _buildChannelUiItem($channel),
             );
 
-            if (@$edges) {
-                push @items, _buildVodMenuItem($user->{login});
+            if (@$highlights) {
+                push @items, _buildVodMenuItem($user->{login}, $channel, 'Highlights', 'highlights');
+            }
+
+            if (@$archives) {
+                push @items, _buildVodMenuItem($user->{login}, $channel, 'Archive', 'archives');
             }
 
             $cb->({ items => \@items });
@@ -106,19 +115,25 @@ sub searchChannel {
 }
 
 sub _buildVodMenuItem {
-    my ($login) = @_;
+    my ($login, $channel, $title, $type) = @_;
 
     return {
-        name => 'VODs',
-        type => 'playlist',
+        name  => $title,
+        type  => 'playlist',
+        image => $channel->{cover},
 
-        url  => sub {
+        url => sub {
             my ($client, $cb) = @_;
 
             Plugins::Twitch::API::getVods($login, 100, sub {
                 my ($data) = @_;
 
-                my $edges = $data->{user}{videos}{edges} || [];
+                my $edges =
+                       $data
+                    && $data->{user}
+                    && $data->{user}{$type}
+                    && $data->{user}{$type}{edges}
+                    || [];
 
                 unless (@$edges) {
                     return $cb->({
@@ -133,19 +148,15 @@ sub _buildVodMenuItem {
 
                 for my $edge (@$edges) {
                     my $v = $edge->{node} || next;
-
                     my $vod_id = $v->{id} || next;
 
                     push @items, {
                         type  => 'audio',
                         name  => $v->{title} || 'Untitled',
                         line1 => $v->{title} || 'Untitled',
-                        #line2 => $v->{createdAt} || '',
-			icon  => $v->{thumbnailURLs}[0],
-			image => $v->{thumbnailURLs}[0],
-
+                        icon  => $v->{thumbnailURLs}[0],
+                        image => $v->{thumbnailURLs}[0],
                         play  => 'twitch:vod:' . $vod_id,
-
                         duration => $v->{lengthSeconds} || 0,
                     };
                 }
@@ -187,16 +198,16 @@ sub _buildChannelUiItem {
     my ($channel) = @_;
 
     return {
-        type             => 'audio',
-        favorites_type   => 'audio',
-        play             => 'twitch:live:' . $channel->{artist},
-        line1            => $channel->{artist},
-        line2            => $channel->{title},
-        image            => $channel->{cover},
-        on_select        => 'play',
-        duration         => 0,
-        title            => $channel->{title},
-        favorites_title  => $channel->{title},
+        type            => 'audio',
+        favorites_type  => 'audio',
+        play            => 'twitch:live:' . $channel->{artist},
+        line1           => $channel->{artist},
+        line2           => $channel->{title},
+        image           => $channel->{cover},
+        on_select       => 'play',
+        duration        => 0,
+        title           => $channel->{title},
+        favorites_title => $channel->{title},
     };
 }
 
@@ -206,9 +217,9 @@ sub _buildChannelData {
     my $stream = $user->{stream} // {};
 
     return {
-        artist  => lc($user->{login} // ''),
-        title => $stream->{title} // 'Offline',
-        cover => $user->{profileImageURL} // '',
+        artist => lc($user->{login} // ''),
+        title  => $stream->{title} // 'Offline',
+        cover  => $user->{profileImageURL} // '',
     };
 }
 

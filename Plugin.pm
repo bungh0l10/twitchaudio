@@ -6,17 +6,11 @@ use warnings;
 use parent qw(Slim::Plugin::OPMLBased);
 
 use Slim::Utils::Log;
-use Slim::Utils::Prefs;
 use Slim::Utils::Strings qw(cstring);
 use Slim::Utils::Cache;
 
 use Plugins::Twitch::API;
-
-use constant {
-    PLAYBACK_CACHE_TTL => 3600,
-};
-
-my $prefs = preferences('plugin.twitch');
+use Plugins::Twitch::Config ();
 
 my $log = Slim::Utils::Log->addLogCategory({
     category     => 'plugin.twitch',
@@ -31,6 +25,8 @@ sub getDisplayName {
 
 sub initPlugin {
     my ($class) = @_;
+
+    Plugins::Twitch::Config::init();
 
     $class->SUPER::initPlugin(
         feed   => \&handleFeed,
@@ -48,7 +44,7 @@ sub initPlugin {
 }
 
 sub handleFeed {
-    my ($client, $cb, $args) = @_;
+    my ($client, $cb) = @_;
 
     $cb->({
         items => [ _buildMainMenu($client) ],
@@ -60,7 +56,7 @@ sub handleFeed {
 sub searchChannel {
     my ($client, $cb, $args) = @_;
 
-    my $query = _normalizeSearchQuery($args->{search});
+    my $query = _normalize_search_query($args->{search});
 
     return _channelDoesNotExist($client, $cb)
         unless $query;
@@ -71,36 +67,29 @@ sub searchChannel {
         return _channelDoesNotExist($client, $cb)
             unless $data && $data->{user};
 
-        my $user    = $data->{user};
+        my $user = $data->{user};
         my $channel = _buildChannelData($user);
+
+        _cache_live_metadata($channel);
 
         Plugins::Twitch::API::getVods($user->{login}, 1, sub {
             my ($vod_data) = @_;
 
-            my $highlights =
-                   $vod_data
-                && $vod_data->{user}
-                && $vod_data->{user}{highlights}
-                && $vod_data->{user}{highlights}{edges}
-                || [];
+            my @items = (_buildChannelUiItem($channel));
 
-            my $archives =
-                   $vod_data
-                && $vod_data->{user}
-                && $vod_data->{user}{archives}
-                && $vod_data->{user}{archives}{edges}
-                || [];
+            for my $vod_type (
+                ['Highlights', 'highlights'],
+                ['Archive',    'archives'],
+            ) {
+                my ($title, $type) = @$vod_type;
+                next unless @{ _vod_edges($vod_data, $type) };
 
-            my @items = (
-                _buildChannelUiItem($channel),
-            );
-
-            if (@$highlights) {
-                push @items, _buildVodMenuItem($user->{login}, $channel, 'Highlights', 'highlights');
-            }
-
-            if (@$archives) {
-                push @items, _buildVodMenuItem($user->{login}, $channel, 'Archive', 'archives');
+                push @items, _buildVodMenuItem(
+                    $user->{login},
+                    $channel,
+                    $title,
+                    $type,
+                );
             }
 
             $cb->({ items => \@items });
@@ -112,6 +101,18 @@ sub searchChannel {
     });
 
     return;
+}
+
+sub _vod_edges {
+    my ($data, $type) = @_;
+
+    return []
+        unless $data
+            && $data->{user}
+            && $data->{user}{$type}
+            && $data->{user}{$type}{edges};
+
+    return $data->{user}{$type}{edges};
 }
 
 sub _buildVodMenuItem {
@@ -128,12 +129,7 @@ sub _buildVodMenuItem {
             Plugins::Twitch::API::getVods($login, 100, sub {
                 my ($data) = @_;
 
-                my $edges =
-                       $data
-                    && $data->{user}
-                    && $data->{user}{$type}
-                    && $data->{user}{$type}{edges}
-                    || [];
+                my $edges = _vod_edges($data, $type);
 
                 unless (@$edges) {
                     return $cb->({
@@ -147,18 +143,8 @@ sub _buildVodMenuItem {
                 my @items;
 
                 for my $edge (@$edges) {
-                    my $v = $edge->{node} || next;
-                    my $vod_id = $v->{id} || next;
-
-                    push @items, {
-                        type  => 'audio',
-                        name  => $v->{title} || 'Untitled',
-                        line1 => $v->{title} || 'Untitled',
-                        icon  => $v->{thumbnailURLs}[0],
-                        image => $v->{thumbnailURLs}[0],
-                        play  => 'twitch:vod:' . $vod_id,
-                        duration => $v->{lengthSeconds} || 0,
-                    };
+                    my $item = _buildVodUiItem($edge);
+                    push @items, $item if $item;
                 }
 
                 $cb->({ items => \@items });
@@ -168,6 +154,25 @@ sub _buildVodMenuItem {
 
             return;
         },
+    };
+}
+
+sub _buildVodUiItem {
+    my ($edge) = @_;
+
+    my $vod = $edge->{node} || return;
+    my $vod_id = $vod->{id} || return;
+    my $title = $vod->{title} || 'Untitled';
+    my $image = $vod->{thumbnailURLs}[0];
+
+    return {
+        type     => 'audio',
+        name     => $title,
+        line1    => $title,
+        icon     => $image,
+        image    => $image,
+        play     => 'twitch:vod:' . $vod_id,
+        duration => $vod->{lengthSeconds} || 0,
     };
 }
 
@@ -223,23 +228,27 @@ sub _buildChannelData {
     };
 }
 
-sub _cachePlayback {
+sub _cache_live_metadata {
     my ($channel) = @_;
 
-    return unless $channel && $channel->{name};
+    return unless $channel && $channel->{artist};
 
     my $cache = Slim::Utils::Cache->new;
 
     $cache->set(
-        "twitch_playback_$channel->{name}",
-        $channel,
-        PLAYBACK_CACHE_TTL,
+        "twitch:live:$channel->{artist}",
+        {
+            title  => $channel->{title},
+            artist => $channel->{artist},
+            cover  => $channel->{cover},
+        },
+        Plugins::Twitch::Config::cache_ttl(),
     );
 
     return;
 }
 
-sub _normalizeSearchQuery {
+sub _normalize_search_query {
     my ($query) = @_;
 
     return '' unless defined $query;

@@ -10,8 +10,9 @@ use bytes;
 use base qw(IO::Handle);
 
 use Slim::Networking::SimpleAsyncHTTP;
-use Slim::Utils::Errno qw(EWOULDBLOCK);
+use Slim::Utils::Errno;
 use Slim::Utils::Log qw(logger);
+use Slim::Utils::Versions ();
 use Time::HiRes qw(time);
 use URI;
 
@@ -22,6 +23,11 @@ use constant {
     HTTP_TIMEOUT    => 20,
     MAX_ADTS_BUFFER => 2_000_000,
 };
+
+# LMS releases before 7.9.1 retry an IO handler only for EINTR.  Newer LMS
+# releases correctly use EWOULDBLOCK for an asynchronously filled handle.
+use constant IO_SELECT_FIXED =>
+    Slim::Utils::Versions->compareVersions($::VERSION, '7.9.1') >= 0;
 
 sub isRemote         { 1 }
 sub isAudio          { 1 }
@@ -48,6 +54,7 @@ sub new {
     ${*$self}{started}      = 0;
     ${*$self}{next_playlist}= 0;
 
+    $log->info("Twitch HLS reader opened: $url");
     $self->_fetch_playlist;
     return $self;
 }
@@ -145,6 +152,8 @@ sub _parse_playlist {
     ${*$self}{endlist} = $endlist;
     ${*$self}{next_playlist} = time() + (($last_duration > 3) ? $last_duration - 2 : 1)
         unless $endlist;
+    $log->info(sprintf 'Twitch HLS playlist: %d queued segment(s), %s',
+        scalar(@new), $endlist ? 'VOD' : 'live');
 }
 
 sub _fetch_segments {
@@ -161,6 +170,8 @@ sub _fetch_segments {
             delete $segment->{fetching};
             ${*$self}{cc} = {} if $segment->{discontinuity};
             $segment->{aac} = $self->_extract_adts($ts);
+            $log->info(sprintf 'Twitch HLS segment: %d TS bytes, %d ADTS bytes',
+                length($ts || ''), length($segment->{aac}));
             $self->_fetch_segments;
         }, sub {
             my ($error) = @_;
@@ -241,7 +252,14 @@ sub _extract_adts {
     return '' unless defined $ts;
     ${*$self}{audio_pid} //= $self->_find_pids($ts);
     my $pid = ${*$self}{audio_pid};
-    return '' unless defined $pid;
+    unless (defined $pid) {
+        unless (${*$self}{reported_no_audio_pid}++) {
+            $log->warn('Twitch HLS: no AAC PID found in PAT/PMT; stream is not MPEG-TS AAC');
+        }
+        return '';
+    }
+    $log->info(sprintf 'Twitch HLS AAC PID: 0x%04x', $pid)
+        unless ${*$self}{reported_audio_pid}++;
 
     my $pes = '';
     for (my $i = 0; $i + TS_PACKET_SIZE <= length($ts); $i += TS_PACKET_SIZE) {
@@ -298,7 +316,7 @@ sub sysread {
             && !${*$self}{playlist_request}
             && time() >= ${*$self}{next_playlist};
     return 0 if ${*$self}{endlist} && !@$segments && !${*$self}{segment_request};
-    $! = EWOULDBLOCK;
+    $! = IO_SELECT_FIXED ? EWOULDBLOCK : EINTR;
     return undef;
 }
 

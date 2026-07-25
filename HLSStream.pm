@@ -228,6 +228,11 @@ sub new {
         ? $song->seekdata->{timeOffset}
         : undef;
     my $is_vod = _is_vod_song($song);
+    if ($is_vod && !defined $seek_time && $song) {
+        my $resume_time = $song->pluginData('twitchResumePosition');
+        $seek_time = $resume_time
+            if defined $resume_time && $resume_time > 0;
+    }
     $seek_time = undef unless $is_vod;
 
     _clear_live_duration($song) unless $is_vod;
@@ -285,7 +290,15 @@ sub close {
     my ($self) = @_;
     if (${*$self}{is_vod} && ${*$self}{session}) {
         my $position = ${*$self}{session}->position;
-        ${*$self}{resume_time} = $position if $position > 0;
+        if ($position > 0) {
+            ${*$self}{resume_time} = $position;
+            my $song = ${*$self}{song};
+            $song->pluginData('twitchResumePosition', $position) if $song;
+            $log->debug(sprintf(
+                'Twitch HLS VOD resume position stored: %.1f s',
+                $position,
+            ));
+        }
     }
     ${*$self}{closed} = 1;
     ${*$self}{session}->close if ${*$self}{session};
@@ -302,6 +315,12 @@ sub sysread {
 
     my $bytes = ${*$self}{session}->read($max_bytes);
     if (defined $bytes) {
+        if (${*$self}{is_vod} && length($bytes)) {
+            my $position = ${*$self}{session}->position;
+            ${*$self}{resume_time} = $position;
+            my $song = ${*$self}{song};
+            $song->pluginData('twitchResumePosition', $position) if $song;
+        }
         $_[1] = $bytes;
         return length($bytes);
     }

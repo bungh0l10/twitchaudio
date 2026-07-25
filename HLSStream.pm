@@ -11,22 +11,15 @@ use base qw(IO::Handle);
 
 use Slim::Networking::SimpleAsyncHTTP;
 use Slim::Player::ProtocolHandlers;
-use Slim::Formats::Playlists;
 use Slim::Utils::Errno;
 use Slim::Utils::Log qw(logger);
 use Slim::Utils::Versions ();
 use Time::HiRes qw(time);
 use URI;
 
-use Plugins::Twitch::HLSPlaylist ();
-
 my $log = logger('plugin.twitch');
 
 Slim::Player::ProtocolHandlers->registerHandler('twitchhls', __PACKAGE__);
-Slim::Formats::Playlists->registerParser(
-    'twitchhlspl',
-    'Plugins::Twitch::HLSPlaylist',
-);
 
 use constant {
     TS_PACKET_SIZE  => 188,
@@ -45,6 +38,19 @@ sub canDirectStream  { 0 }
 sub canSeek          { 0 }
 sub contentType      { 'audio/aac' }
 sub formatOverride   { 'aac' }
+
+# Called by LMS before it starts its generic remote scanner.  The generic
+# scanner treats an HLS media playlist as an M3U playlist and follows its
+# relative TS entries, which is precisely what we must avoid.
+sub scanStream {
+    my ($class, $url, $track, $args) = @_;
+
+    $track->content_type('aac');
+    $track->update;
+
+    my $cb = $args->{cb} || sub {};
+    return $cb->($track, undef, @{ $args->{pt} || [] });
+}
 
 sub new {
     my ($class, $args) = @_;

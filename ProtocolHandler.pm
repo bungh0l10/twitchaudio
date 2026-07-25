@@ -29,6 +29,13 @@ sub _set_hls_args {
     return;
 }
 
+sub _native_hls_url {
+    my ($url) = @_;
+    $url =~ s{^https:}{twitchhls:};
+    $url =~ s{^http:}{twitchhls:};
+    return $url;
+}
+
 sub canDirectStream { 0 }
 sub isAudio          { 1 }
 sub isRemote         { 1 }
@@ -87,8 +94,9 @@ sub _scan_stream {
         my $stream_type = $media_id =~ /^live:/ ? 'LIVE' : 'VOD';
         $log->info("TWITCH $stream_type STREAM URL: $stream_url");
 
+        my $native_url = _native_hls_url($stream_url);
         _set_hls_args($args);
-        Slim::Utils::Scanner::Remote->scanURL($stream_url, $args);
+        Slim::Utils::Scanner::Remote->scanURL($native_url, $args);
         _applyInitialMetadata($client, $media_id);
 
         return;

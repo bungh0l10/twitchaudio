@@ -24,6 +24,7 @@ Slim::Player::ProtocolHandlers->registerHandler('twitchhls', __PACKAGE__);
 use constant {
     TS_PACKET_SIZE  => 188,
     HTTP_TIMEOUT    => 20,
+    PREFETCH        => 3,
     MAX_ADTS_BUFFER => 2_000_000,
 };
 
@@ -47,6 +48,14 @@ sub scanStream {
 
     $track->content_type('aac');
     $track->update;
+
+    # The originating twitch: song initially belongs to ProtocolHandler
+    # (which inherits HTTPS).  Without replacing it here LMS attempts to
+    # open twitchhls:// with HTTPS once, waits for its socket timeout, and
+    # only then retries with this handler.
+    if (my $song = $args->{song}) {
+        $song->handler($class);
+    }
 
     my $cb = $args->{cb} || sub {};
     return $cb->($track, undef, @{ $args->{pt} || [] });
@@ -179,6 +188,11 @@ sub _fetch_segments {
     return if ${*$self}{closed};
 
     my $segments = ${*$self}{segments};
+    my $buffered = scalar grep {
+        $_->{fetching} || defined $_->{aac}
+    } @$segments;
+    return if $buffered >= PREFETCH;
+
     for my $segment (@$segments) {
         next if $segment->{fetching} || defined $segment->{aac};
         $segment->{fetching} = 1;
@@ -186,7 +200,10 @@ sub _fetch_segments {
             my ($ts) = @_;
             delete ${*$self}{segment_request};
             delete $segment->{fetching};
-            ${*$self}{cc} = {} if $segment->{discontinuity};
+            # Twitch restarts continuity counters at HLS segment boundaries.
+            # Each segment is self-contained, so retain ADTS carry-over but
+            # start a new TS continuity epoch for it.
+            ${*$self}{cc} = {};
             $segment->{aac} = $self->_extract_adts($ts);
             $log->info(sprintf 'Twitch HLS segment: %d TS bytes, %d ADTS bytes',
                 length($ts || ''), length($segment->{aac}));

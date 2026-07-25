@@ -4,13 +4,13 @@
     <title lang="EN">Mein Plugin-Repo</title>
   </details>
   <plugins>
-    <plugin maxTarget="*" version="0.0.0.52" minTarget="7.7" name="Twitch">
-      <creator>bungh0l10</creator>
-      <url>https://github.com/bungh0l10/twitchaudio/releases/download/0.0.0.52/TWITCH.zip</url>
-      <title lang="EN">Twitch</title>
-      <category>musicservices</category>
+    <plugin maxTarget="*" name="Twitch" minTarget="7.7" version="0.0.0.53">
       <desc lang="EN">Audio-only Twitch Streaming Plugin for LMS</desc>
-      <sha>30bfc7de4c858e0f055cc57869893755848641bf</sha>
+      <url>https://github.com/bungh0l10/twitchaudio/releases/download/0.0.0.53/TWITCH.zip</url>
+      <creator>bungh0l10</creator>
+      <category>musicservices</category>
+      <sha>fa829adb02cb3c0ec9edd9bd82f234d5f398085d</sha>
+      <title lang="EN">Twitch</title>
     </plugin>
   </plugins>
 </extensions>

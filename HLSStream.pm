@@ -33,9 +33,29 @@ sub canDirectStream  { 0 }
 sub contentType      { 'audio/aac' }
 sub formatOverride   { 'aac' }
 
+sub _is_vod_song {
+    my ($song) = @_;
+    return 0 unless $song;
+
+    my $media_type = $song->pluginData('twitchMediaType');
+    return 1 if defined $media_type && $media_type eq 'vod';
+    return 0 if defined $media_type && $media_type eq 'live';
+
+    for my $method (qw(track currentTrack)) {
+        next unless $song->can($method);
+        my $track = $song->$method or next;
+        my $url = $track->can('url') ? $track->url : '';
+        return 1 if $url =~ /^twitch:vod:/;
+        return 0 if $url =~ /^twitch:live:/;
+    }
+
+    # Unknown streams must retain live semantics: no duration or progress bar.
+    return 0;
+}
+
 sub canSeek {
     my ($class, $client, $song) = @_;
-    return $song && $song->duration ? 1 : 0;
+    return _is_vod_song($song) && $song->duration ? 1 : 0;
 }
 
 sub getSeekData {
@@ -69,6 +89,7 @@ sub getMetadataFor {
     $song->currentTrack or return {};
 
     my $meta = $song->pluginData('wmaMeta') || {};
+    my $is_vod = _is_vod_song($song);
     my $bitrate = $song->bitrate
         ? sprintf('%dkbps', int(($song->bitrate + 500) / 1000))
         : undef;
@@ -79,7 +100,7 @@ sub getMetadataFor {
         artist       => $meta->{artist},
         cover        => $meta->{cover},
         icon         => $meta->{cover},
-        duration     => $song->duration || undef,
+        duration     => $is_vod ? ($song->duration || undef) : undef,
         bitrate      => $bitrate,
         type         => $type,
         originalType => $type,
@@ -115,6 +136,13 @@ sub new {
     my $seek_time = ($song && $song->seekdata)
         ? $song->seekdata->{timeOffset}
         : undef;
+    my $is_vod = _is_vod_song($song);
+    $seek_time = undef unless $is_vod;
+
+    if (!$is_vod && $song && $song->duration) {
+        $song->duration(0);
+        _notify_metadata($song);
+    }
 
     _set_progress_offset($song, $seek_time)
         if defined $seek_time && $seek_time > 0;
@@ -123,11 +151,12 @@ sub new {
     ${*$self}{song} = $song;
     ${*$self}{session} = Plugins::Twitch::HLS::Session->new({
         playlist_url => $url,
+        is_vod       => $is_vod,
         seek_time    => $seek_time,
         log          => $log,
         on_duration  => sub {
             my ($duration) = @_;
-            return unless $song && $duration;
+            return unless $is_vod && $song && $duration;
             return if $song->duration
                 && abs($song->duration - $duration) < 0.01;
             $song->duration($duration);

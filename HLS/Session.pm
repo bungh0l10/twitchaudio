@@ -21,6 +21,7 @@ sub new {
     my ($class, $args) = @_;
     my $self = bless {
         playlist_url  => $args->{playlist_url},
+        is_vod        => $args->{is_vod} ? 1 : 0,
         seek_time     => $args->{seek_time},
         log           => $args->{log},
         on_duration   => $args->{on_duration} || sub {},
@@ -123,11 +124,12 @@ sub _apply_playlist {
         push @new, { %$segment, id => $id };
     }
 
-    if (!$self->{started} && !$playlist->is_seekable && @new > 3) {
+    if (!$self->{started} && !$self->{is_vod} && @new > 3) {
         @new = splice @new, -3;
     }
 
-    if (!$self->{started}
+    if ($self->{is_vod}
+        && !$self->{started}
         && defined $self->{seek_time}
         && $self->{seek_time} > 0
         && $playlist->is_seekable)
@@ -146,13 +148,16 @@ sub _apply_playlist {
     $self->{started} = 1 if @new;
     push @{ $self->{segments} }, @new;
 
-    if (defined $playlist->total_duration
+    if ($self->{is_vod}
+        && defined $playlist->total_duration
         && $playlist->total_duration > 0)
     {
         $self->{on_duration}->($playlist->total_duration);
     }
 
-    $self->{complete} = $playlist->is_complete;
+    $self->{complete} = $self->{is_vod}
+        ? $playlist->is_complete
+        : $playlist->endlist;
     $self->{next_playlist} = time() + $playlist->reload_after
         unless $self->{complete};
 

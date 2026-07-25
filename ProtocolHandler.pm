@@ -42,6 +42,11 @@ sub isRemote         { 1 }
 sub canSeek          { 0 }
 sub songBytes        { 0 }
 
+sub getMetadataFor {
+    my ($class, @args) = @_;
+    return Plugins::Twitch::HLSStream->getMetadataFor(@args);
+}
+
 # HTTPS::currentTrackHandler intentionally keeps a subclass as the handler.
 # That is correct for ordinary HTTPS redirects, but wrong after scanUrl()
 # changes twitch: into twitchhls:.  Without this override LMS opens the
@@ -97,11 +102,15 @@ sub scanUrl {
 sub _scan_stream {
     my ($args, $client, $media_id, $fetch_url) = @_;
 
+    my $media_type = $media_id =~ /^vod:/ ? 'vod' : 'live';
+    my $song = $args->{song} || $client->playingSong;
+    $song->pluginData('twitchMediaType', $media_type) if $song;
+
     $fetch_url->(sub {
         my ($stream_url) = @_;
         return unless $stream_url;
 
-        my $stream_type = $media_id =~ /^live:/ ? 'LIVE' : 'VOD';
+        my $stream_type = uc($media_type);
         $log->debug("TWITCH $stream_type STREAM URL: $stream_url");
 
         my $native_url = _native_hls_url($stream_url);
@@ -129,7 +138,7 @@ sub _applyInitialMetadata {
         my $meta = $cache->get("twitch:vod:$vod_id");
 
         if ($meta) {
-            $song->pluginData({ wmaMeta => $meta });
+            $song->pluginData('wmaMeta', $meta);
             Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
             return;
         }
@@ -147,7 +156,7 @@ sub _applyInitialMetadata {
                 cover  => $vod->{thumbnail},
             };
 
-            $current->pluginData({ wmaMeta => $meta });
+            $current->pluginData('wmaMeta', $meta);
             Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
 
             $cache->set(
@@ -166,7 +175,7 @@ sub _applyInitialMetadata {
     my $meta = $cache->get("twitch:live:$channel");
 
     if ($meta) {
-        $song->pluginData({ wmaMeta => $meta });
+        $song->pluginData('wmaMeta', $meta);
         Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
         return;
     }
@@ -186,7 +195,7 @@ sub _applyInitialMetadata {
             cover  => $u->{profileImageURL},
         };
 
-        $current->pluginData({ wmaMeta => $meta });
+        $current->pluginData('wmaMeta', $meta);
         Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
 
         $cache->set(

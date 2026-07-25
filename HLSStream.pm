@@ -11,6 +11,8 @@ use base qw(IO::Handle);
 
 use Slim::Player::ProtocolHandlers;
 use Slim::Control::Request ();
+use Slim::Music::Info ();
+use Slim::Utils::Cache;
 use Slim::Utils::Errno;
 use Slim::Utils::Log qw(logger);
 use Slim::Utils::Versions ();
@@ -53,6 +55,46 @@ sub _is_vod_song {
     return 0;
 }
 
+sub _twitch_media_id {
+    my ($song, $url) = @_;
+    my @urls = defined $url ? ($url) : ();
+
+    if ($song) {
+        for my $method (qw(track currentTrack)) {
+            next unless $song->can($method);
+            my $track = $song->$method or next;
+            push @urls, $track->url if $track->can('url');
+        }
+    }
+
+    for my $candidate (@urls) {
+        next unless defined $candidate;
+        return ($1, $2) if $candidate =~ /^twitch:(live|vod):([^|?#]+)/;
+    }
+
+    return;
+}
+
+sub _restore_cached_metadata {
+    my ($song, $url) = @_;
+    return {} unless $song;
+
+    my $meta = $song->pluginData('wmaMeta');
+    return $meta if ref $meta eq 'HASH'
+        && ($meta->{title} || $meta->{artist} || $meta->{cover});
+
+    my ($type, $id) = _twitch_media_id($song, $url);
+    return {} unless $type && $id;
+
+    $id = lc $id if $type eq 'live';
+    $meta = Slim::Utils::Cache->new->get("twitch:$type:$id");
+    return {} unless ref $meta eq 'HASH';
+
+    $song->pluginData('twitchMediaType', $type);
+    $song->pluginData('wmaMeta', $meta);
+    return $meta;
+}
+
 sub canSeek {
     my ($class, $client, $song) = @_;
     return _is_vod_song($song) && $song->duration ? 1 : 0;
@@ -83,12 +125,38 @@ sub _notify_metadata {
     );
 }
 
+sub _clear_live_duration {
+    my ($song) = @_;
+    return unless $song;
+
+    # Song::duration(0) alone is insufficient: LMS treats zero as false and
+    # falls back to Slim::Music::Info::getDuration(currentTrack->url).
+    $song->duration(0);
+    $song->startOffset(0);
+
+    my %cleared;
+    for my $method (qw(track currentTrack)) {
+        next unless $song->can($method);
+        my $track = $song->$method or next;
+        my $url = $track->can('url') ? ($track->url || '') : '';
+        next if $url && $cleared{$url}++;
+        Slim::Music::Info::setDuration($track, 0)
+            if $track->can('secs');
+    }
+
+    my $client = $song->master;
+    $client->remoteStreamStartTime(time())
+        if $client && $client->can('remoteStreamStartTime');
+
+    _notify_metadata($song);
+}
+
 sub getMetadataFor {
     my ($class, $client, $url) = @_;
     my $song = $client && $client->playingSong or return {};
     $song->currentTrack or return {};
 
-    my $meta = $song->pluginData('wmaMeta') || {};
+    my $meta = _restore_cached_metadata($song, $url);
     my $is_vod = _is_vod_song($song);
     my $bitrate = $song->bitrate
         ? sprintf('%dkbps', int(($song->bitrate + 500) / 1000))
@@ -119,6 +187,11 @@ sub scanStream {
 
     if (my $song = $args->{song}) {
         $song->handler($class);
+        unless (_is_vod_song($song)) {
+            Slim::Music::Info::setDuration($track, 0)
+                if $track->can('secs');
+            _clear_live_duration($song);
+        }
     }
 
     my $cb = $args->{cb} || sub {};
@@ -139,10 +212,7 @@ sub new {
     my $is_vod = _is_vod_song($song);
     $seek_time = undef unless $is_vod;
 
-    if (!$is_vod && $song && $song->duration) {
-        $song->duration(0);
-        _notify_metadata($song);
-    }
+    _clear_live_duration($song) unless $is_vod;
 
     _set_progress_offset($song, $seek_time)
         if defined $seek_time && $seek_time > 0;

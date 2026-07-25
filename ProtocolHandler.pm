@@ -43,8 +43,20 @@ sub canSeek          { 0 }
 sub songBytes        { 0 }
 
 sub getMetadataFor {
-    my ($class, @args) = @_;
-    return Plugins::Twitch::HLSStream->getMetadataFor(@args);
+    my ($class, $client, $url) = @_;
+    my $meta = Plugins::Twitch::HLSStream->getMetadataFor($client, $url);
+
+    if (!$meta->{artist} && !$meta->{cover}
+        && $client && $url =~ /^twitch:(live|vod):([^|?#]+)/)
+    {
+        my $song = $client->playingSong;
+        if ($song && !$song->pluginData('twitchMetadataRefreshRequested')) {
+            $song->pluginData('twitchMetadataRefreshRequested', 1);
+            _applyInitialMetadata($client, "$1:$2");
+        }
+    }
+
+    return $meta;
 }
 
 # HTTPS::currentTrackHandler intentionally keeps a subclass as the handler.

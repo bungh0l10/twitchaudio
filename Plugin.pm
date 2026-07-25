@@ -11,6 +11,7 @@ use Slim::Utils::Cache;
 
 use Plugins::Twitch::API;
 use Plugins::Twitch::Config ();
+use Plugins::Twitch::HLSStream ();
 
 my $log = Slim::Utils::Log->addLogCategory({
     category     => 'plugin.twitch',

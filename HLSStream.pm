@@ -10,13 +10,23 @@ use bytes;
 use base qw(IO::Handle);
 
 use Slim::Networking::SimpleAsyncHTTP;
+use Slim::Player::ProtocolHandlers;
+use Slim::Formats::Playlists;
 use Slim::Utils::Errno;
 use Slim::Utils::Log qw(logger);
 use Slim::Utils::Versions ();
 use Time::HiRes qw(time);
 use URI;
 
+use Plugins::Twitch::HLSPlaylist ();
+
 my $log = logger('plugin.twitch');
+
+Slim::Player::ProtocolHandlers->registerHandler('twitchhls', __PACKAGE__);
+Slim::Formats::Playlists->registerParser(
+    'twitchhlspl',
+    'Plugins::Twitch::HLSPlaylist',
+);
 
 use constant {
     TS_PACKET_SIZE  => 188,
@@ -41,6 +51,8 @@ sub new {
     my $song = $args->{song};
     my $url = ($song && $song->can('streamUrl') ? $song->streamUrl : undef)
         || $args->{url};
+    $url =~ s{^twitchhls:}{https:};
+    $url =~ s/\|$//;
 
     my $self = $class->SUPER::new;
     ${*$self}{playlist_url} = $url;

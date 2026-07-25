@@ -118,8 +118,42 @@ sub canSeek {
     return _is_vod_song($song) && $song->duration ? 1 : 0;
 }
 
+sub _resume_cache_key {
+    my ($song) = @_;
+    return unless $song;
+
+    my ($type, $id) = _twitch_media_id($song);
+    return unless $type && $type eq 'vod' && $id;
+
+    my $client = $song->master;
+    my $client_id = $client && $client->can('id') ? $client->id : undef;
+    return unless defined $client_id && length $client_id;
+    return "twitch:resume:$client_id:vod:$id";
+}
+
+sub _store_resume_position {
+    my ($song, $position) = @_;
+    return unless $song && defined $position;
+
+    $song->pluginData('twitchResumePosition', $position);
+    my $key = _resume_cache_key($song) or return;
+    Slim::Utils::Cache->new->set($key, $position, 3600);
+}
+
+sub _resume_position {
+    my ($song) = @_;
+    return unless $song;
+
+    my $position = $song->pluginData('twitchResumePosition');
+    return $position if defined $position;
+
+    my $key = _resume_cache_key($song) or return;
+    return Slim::Utils::Cache->new->get($key);
+}
+
 sub getSeekData {
     my ($class, $client, $song, $newtime) = @_;
+    _store_resume_position($song, $newtime) if _is_vod_song($song);
     return { timeOffset => $newtime };
 }
 
@@ -228,10 +262,11 @@ sub new {
         ? $song->seekdata->{timeOffset}
         : undef;
     my $is_vod = _is_vod_song($song);
-    if ($is_vod && !defined $seek_time && $song) {
-        my $resume_time = $song->pluginData('twitchResumePosition');
+    if ($is_vod && $song) {
+        my $resume_time = _resume_position($song);
         $seek_time = $resume_time
-            if defined $resume_time && $resume_time > 0;
+            if defined $resume_time
+                && (!defined $seek_time || $seek_time <= 0);
     }
     $seek_time = undef unless $is_vod;
 
@@ -292,8 +327,7 @@ sub close {
         my $position = ${*$self}{session}->position;
         if ($position > 0) {
             ${*$self}{resume_time} = $position;
-            my $song = ${*$self}{song};
-            $song->pluginData('twitchResumePosition', $position) if $song;
+            _store_resume_position(${*$self}{song}, $position);
             $log->debug(sprintf(
                 'Twitch HLS VOD resume position stored: %.1f s',
                 $position,
@@ -318,8 +352,7 @@ sub sysread {
         if (${*$self}{is_vod} && length($bytes)) {
             my $position = ${*$self}{session}->position;
             ${*$self}{resume_time} = $position;
-            my $song = ${*$self}{song};
-            $song->pluginData('twitchResumePosition', $position) if $song;
+            _store_resume_position(${*$self}{song}, $position);
         }
         $_[1] = $bytes;
         return length($bytes);

@@ -64,17 +64,25 @@ sub _set_progress_offset {
 sub getMetadataFor {
     my ($class, $client, $url) = @_;
     my $song = $client && $client->playingSong or return {};
-    my $track = $song->currentTrack or return {};
-    return {} unless $track->url eq $url || $song->track->url eq $url;
+    $song->currentTrack or return {};
 
     my $meta = $song->pluginData('wmaMeta') || {};
+    my $bitrate = $song->bitrate
+        ? sprintf('%dkbps', int(($song->bitrate + 500) / 1000))
+        : undef;
+    my $type = 'AAC (Twitch)';
+
     return {
-        title    => $meta->{title},
-        artist   => $meta->{artist},
-        cover    => $meta->{cover},
-        icon     => $meta->{cover},
-        duration => $song->duration || undef,
-        type     => 'AAC (Twitch HLS)',
+        title        => $meta->{title},
+        artist       => $meta->{artist},
+        cover        => $meta->{cover},
+        icon         => $meta->{cover},
+        duration     => $song->duration || undef,
+        bitrate      => $bitrate,
+        type         => $type,
+        originalType => $type,
+        originaltype => $type,
+        url          => $url,
     };
 }
 
@@ -280,6 +288,21 @@ sub _fetch_segments {
             # start a new TS continuity epoch for it.
             ${*$self}{cc} = {};
             $segment->{aac} = $self->_extract_adts($ts);
+            if ($segment->{duration} && length($segment->{aac})) {
+                my $bitrate = length($segment->{aac}) * 8 / $segment->{duration};
+                # AAC is usually VBR. Round the short segment measurement to
+                # a stable 8 kbit/s step before exposing it as stream metadata.
+                $bitrate = int(($bitrate + 4_000) / 8_000) * 8_000;
+
+                my $song = ${*$self}{song};
+                if ($song && !$song->bitrate) {
+                    $song->bitrate($bitrate);
+                    Slim::Control::Request::notifyFromArray(
+                        $song->master,
+                        ['newmetadata'],
+                    );
+                }
+            }
             $log->info(sprintf 'Twitch HLS segment: %d TS bytes, %d ADTS bytes',
                 length($ts || ''), length($segment->{aac}));
             $self->_fetch_segments;

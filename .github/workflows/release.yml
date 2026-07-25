@@ -63,7 +63,23 @@ jobs:
           set -euo pipefail
 
           rm -f TWITCH.zip
-          zip -r TWITCH.zip API *.pm HTML Settings install.xml strings.txt README.md
+          git archive \
+            --worktree-attributes \
+            --format=zip \
+            --output=TWITCH.zip \
+            HEAD
+
+          if ! unzip -Z1 TWITCH.zip | grep -qx 'install.xml'; then
+            printf '%s\n' "install.xml missing from TWITCH.zip" >&2
+            exit 1
+          fi
+
+          if unzip -Z1 TWITCH.zip | grep -Eq '^(\.github|repo)/'; then
+            printf '%s\n' "Release-only files found in TWITCH.zip" >&2
+            exit 1
+          fi
+
+          unzip -Z1 TWITCH.zip
 
       - name: Setup Perl
         if: steps.tag-check.outputs.exists == 'false'

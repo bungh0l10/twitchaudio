@@ -42,6 +42,16 @@ sub isRemote         { 1 }
 sub canSeek          { 0 }
 sub songBytes        { 0 }
 
+# HTTPS::currentTrackHandler intentionally keeps a subclass as the handler.
+# That is correct for ordinary HTTPS redirects, but wrong after scanUrl()
+# changes twitch: into twitchhls:.  Without this override LMS opens the
+# first twitchhls URL with the inherited HTTPS handler and waits for its
+# socket timeout before a second Play attempt uses HLSStream.
+sub currentTrackHandler {
+    my ($class, $song, $track) = @_;
+    return Slim::Player::ProtocolHandlers->handlerForURL($track->url);
+}
+
 sub scanUrl {
     my ($class, $uri, $args) = @_;
 

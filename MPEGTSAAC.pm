@@ -114,7 +114,7 @@ sub extract {
     my $pid = $self->{audio_pid};
     unless (defined $pid) {
         if (!$self->{reported_no_audio_pid}++) {
-            $self->{log}->warn(
+            $self->{log}->error(
                 'Twitch HLS: no AAC PID found in MPEG-TS segment'
             ) if $self->{log};
         }
@@ -122,7 +122,7 @@ sub extract {
     }
 
     if (!$self->{reported_audio_pid}++) {
-        $self->{log}->info(sprintf 'Twitch HLS AAC PID: 0x%04x', $pid)
+        $self->{log}->debug(sprintf 'Twitch HLS AAC PID: 0x%04x', $pid)
             if $self->{log};
     }
 

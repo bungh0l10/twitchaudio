@@ -24,6 +24,11 @@ sub _has_text {
     return defined $value && length $value;
 }
 
+sub _json_bool {
+    my ($value) = @_;
+    return $value ? \1 : \0;
+}
+
 sub _request {
     my ($method, $url, $headers, $body, $callback) = @_;
 
@@ -36,7 +41,7 @@ sub _request {
             my ($response, $error, $http_response) = @_;
 
             my $status = $http_response ? $http_response->status_line : $error;
-            $log->warn("Twitch HTTP $method failed for $url: " . ($status || 'unknown error'));
+            $log->error("Twitch HTTP $method failed for $url: " . ($status || 'unknown error'));
 
             return $callback->();
         },
@@ -74,12 +79,12 @@ sub _post_json {
                 $data = decode_json($content);
             }
             catch {
-                $log->warn("Twitch JSON decode failed: $_");
+                $log->error("Twitch JSON decode failed: $_");
             };
 
             if ($data && $data->{errors}) {
                 my @messages = map { $_->{message} // 'unknown GraphQL error' } @{ $data->{errors} };
-                $log->warn('Twitch GraphQL error: ' . join('; ', @messages));
+                $log->error('Twitch GraphQL error: ' . join('; ', @messages));
             }
 
             return $callback->($data);
@@ -96,7 +101,7 @@ sub _graphql_data {
         my ($data) = @_;
 
         unless (ref $data eq 'HASH' && ref $data->{data} eq 'HASH') {
-            $log->warn("Twitch GraphQL invalid response: $label");
+            $log->error("Twitch GraphQL invalid response: $label");
             return $callback->();
         }
 
@@ -200,7 +205,7 @@ GRAPHQL
 
         my $token = $root && $root->{streamPlaybackAccessToken};
         unless ($token && $token->{signature} && $token->{value}) {
-            $log->warn("Twitch missing live playback token for $channel");
+            $log->error("Twitch missing live playback token for $channel");
             return $callback->();
         }
 
@@ -287,8 +292,8 @@ sub getVodAudioUrl {
             },
         },
         variables => {
-            isLive     => 0,
-            isVod      => 1,
+            isLive     => _json_bool(0),
+            isVod      => _json_bool(1),
             vodID      => $vod_id,
             login      => '',
             platform   => 'web',
@@ -299,7 +304,7 @@ sub getVodAudioUrl {
 
         my $token = $root && $root->{videoPlaybackAccessToken};
         unless ($token && $token->{signature} && $token->{value}) {
-            $log->warn("Twitch missing VOD playback token for $vod_id");
+            $log->error("Twitch missing VOD playback token for $vod_id");
             return $callback->();
         }
 
@@ -345,7 +350,7 @@ GRAPHQL
 
         my $vod = $root && $root->{video};
         unless ($vod) {
-            $log->warn("Twitch missing VOD metadata for $vod_id");
+            $log->error("Twitch missing VOD metadata for $vod_id");
             return $callback->();
         }
 

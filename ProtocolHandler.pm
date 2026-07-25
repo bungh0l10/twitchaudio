@@ -102,7 +102,7 @@ sub _scan_stream {
         return unless $stream_url;
 
         my $stream_type = $media_id =~ /^live:/ ? 'LIVE' : 'VOD';
-        $log->info("TWITCH $stream_type STREAM URL: $stream_url");
+        $log->debug("TWITCH $stream_type STREAM URL: $stream_url");
 
         my $native_url = _native_hls_url($stream_url);
         _set_hls_args($args);

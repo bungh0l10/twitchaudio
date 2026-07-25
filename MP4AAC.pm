@@ -176,14 +176,14 @@ sub set_init {
             $frequency_index,
             $channel_config,
         );
-        $self->{log}->info(sprintf(
+        $self->{log}->debug(sprintf(
             'Twitch HLS fragmented MP4 AAC track: id=%d, profile=%d, rate-index=%d, channels=%d',
             $track_id, $object_type, $frequency_index, $channel_config,
         )) if $self->{log};
         return 1;
     }
 
-    $self->{log}->warn(
+    $self->{log}->error(
         'Twitch HLS: no supported AAC audio track found in MP4 init segment'
     ) if $self->{log};
     return;

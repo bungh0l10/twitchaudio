@@ -141,7 +141,8 @@ sub new {
     _set_progress_offset($song, ${*$self}{seek_time})
         if defined ${*$self}{seek_time} && ${*$self}{seek_time} > 0;
 
-    $log->info("Twitch HLS reader opened: $url");
+    $log->info('Twitch HLS reader opened');
+    $log->debug("Twitch HLS playlist URL: $url");
     $self->_fetch_playlist;
     return $self;
 }
@@ -190,7 +191,7 @@ sub _fetch_playlist {
         my ($error) = @_;
         delete ${*$self}{playlist_request};
         ${*$self}{next_playlist} = time() + 3;
-        $log->warn("Twitch HLS playlist request failed: $error");
+        $log->error("Twitch HLS playlist request failed: $error");
     });
 }
 
@@ -206,7 +207,7 @@ sub _parse_playlist {
         ${*$self}{ts_extractor} = Plugins::Twitch::MPEGTSAAC->new({
             log => $log,
         });
-        $log->info('Twitch HLS playlist sequence restarted');
+        $log->debug('Twitch HLS playlist sequence restarted');
     }
     ${*$self}{last_sequence} = $sequence;
 
@@ -279,7 +280,7 @@ sub _parse_playlist {
     ${*$self}{endlist} = $endlist;
     ${*$self}{next_playlist} = time() + (($last_duration > 3) ? $last_duration - 2 : 1)
         unless $endlist;
-    $log->info(sprintf 'Twitch HLS playlist: %d queued segment(s), %s',
+    $log->debug(sprintf 'Twitch HLS playlist: %d queued segment(s), %s',
         scalar(@new), $endlist ? 'VOD' : 'live');
 }
 
@@ -325,7 +326,7 @@ sub _fetch_segments {
                     );
                 }
             }
-            $log->info(sprintf 'Twitch HLS %s segment: %d bytes, %d ADTS bytes',
+            $log->debug(sprintf 'Twitch HLS %s segment: %d bytes, %d ADTS bytes',
                 uc($segment->{container} || 'mpeg-ts'),
                 length($media || ''), length($segment->{aac}));
             $self->_fetch_segments;
@@ -333,7 +334,7 @@ sub _fetch_segments {
             my ($error) = @_;
             delete ${*$self}{segment_request};
             delete $segment->{fetching};
-            $log->warn("Twitch HLS segment request failed: $error");
+            $log->error("Twitch HLS segment request failed: $error");
         });
         last; # preserve TS/PES order; one segment request at a time
     }
@@ -350,18 +351,27 @@ sub _fetch_init {
             ${*$self}{current_init_url} = $url;
             $self->_fetch_segments;
         } else {
-            $log->warn("Twitch HLS MP4 init segment is unsupported: $url");
+            $log->error("Twitch HLS MP4 init segment is unsupported: $url");
         }
     }, sub {
         my ($error) = @_;
         delete ${*$self}{init_request};
-        $log->warn("Twitch HLS MP4 init request failed: $error");
+        $log->error("Twitch HLS MP4 init request failed: $error");
     });
 }
 
 sub _extract_segment {
     my ($self, $segment, $media) = @_;
     return '' unless defined $media;
+
+    if ($segment->{url}
+        && $segment->{url} =~ m{(?:^|/)[^/?#]*-muted\.(?:ts|mp4)(?:[?#]|$)}i)
+    {
+        $log->info(
+            'Audio for this section has been muted by Twitch because it contains copyrighted content.'
+        );
+        return '';
+    }
 
     if ($segment->{container} && $segment->{container} eq 'mp4') {
         return ${*$self}{mp4_extractor}->extract($media);
@@ -373,7 +383,7 @@ sub _extract_segment {
         && substr($media, 4, 4) =~ /^(?:ftyp|styp|moof)$/)
     {
         $segment->{container} = 'mp4';
-        $log->warn('Twitch HLS MP4 segment has no EXT-X-MAP; cannot decode it');
+        $log->error('Twitch HLS MP4 segment has no EXT-X-MAP; cannot decode it');
         return '';
     }
 

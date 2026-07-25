@@ -1,4 +1,4 @@
-package Plugins::Twitch::MPEGTSAAC;
+package Plugins::Twitch::HLS::Extractor::MPEGTSAAC;
 
 use strict;
 use warnings;
@@ -17,6 +17,8 @@ sub new {
         cc          => {},
     }, $class;
 }
+
+sub set_init { 1 }
 
 sub _payload {
     my ($packet) = @_;

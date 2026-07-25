@@ -1,4 +1,4 @@
-package Plugins::Twitch::MP4AAC;
+package Plugins::Twitch::HLS::Extractor::MP4AAC;
 
 use strict;
 use warnings;

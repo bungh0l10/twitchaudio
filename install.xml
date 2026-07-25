@@ -7,8 +7,8 @@
     <onlineLibrary>false</onlineLibrary>
     <defaultState>enabled</defaultState>
     <creator>bungh0l10</creator>
-    <version>0.0.0.66</version>
-    <icon>plugins/twitch/html/images/twitch.png</icon>
+    <version>0.0.0.67</version>
+    <icon>plugins/twitch/html/images/twitch-fixed.png</icon>
     <homepageURL>https://github.com/bungh0l10/twitchaudio</homepageURL>
     <targetApplication>
         <id>SqueezeCenter</id>

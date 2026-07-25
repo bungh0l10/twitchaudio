@@ -11,6 +11,7 @@ use base qw(IO::Handle);
 
 use Slim::Networking::SimpleAsyncHTTP;
 use Slim::Player::ProtocolHandlers;
+use Slim::Control::Request ();
 use Slim::Utils::Errno;
 use Slim::Utils::Log qw(logger);
 use Slim::Utils::Versions ();
@@ -36,9 +37,35 @@ use constant IO_SELECT_FIXED =>
 sub isRemote         { 1 }
 sub isAudio          { 1 }
 sub canDirectStream  { 0 }
-sub canSeek          { 0 }
 sub contentType      { 'audio/aac' }
 sub formatOverride   { 'aac' }
+
+sub canSeek {
+    my ($class, $client, $song) = @_;
+    return $song && $song->duration ? 1 : 0;
+}
+
+sub getSeekData {
+    my ($class, $client, $song, $newtime) = @_;
+    return { timeOffset => $newtime };
+}
+
+sub getMetadataFor {
+    my ($class, $client, $url) = @_;
+    my $song = $client && $client->playingSong or return {};
+    my $track = $song->currentTrack or return {};
+    return {} unless $track->url eq $url || $song->track->url eq $url;
+
+    my $meta = $song->pluginData('wmaMeta') || {};
+    return {
+        title    => $meta->{title},
+        artist   => $meta->{artist},
+        cover    => $meta->{cover},
+        icon     => $meta->{cover},
+        duration => $song->duration || undef,
+        type     => 'AAC (Twitch HLS)',
+    };
+}
 
 # Called by LMS before it starts its generic remote scanner.  The generic
 # scanner treats an HLS media playlist as an M3U playlist and follows its
@@ -80,6 +107,9 @@ sub new {
     ${*$self}{cc}           = {};
     ${*$self}{started}      = 0;
     ${*$self}{next_playlist}= 0;
+    ${*$self}{seek_time}    = ($song && $song->seekdata)
+        ? $song->seekdata->{timeOffset}
+        : undef;
 
     $log->info("Twitch HLS reader opened: $url");
     $self->_fetch_playlist;
@@ -150,7 +180,7 @@ sub _parse_playlist {
 
     my $endlist = $body =~ /#EXT-X-ENDLIST/;
     my @new;
-    my ($duration, $last_duration, $discontinuity, $index) = (0, 6, 0, 0);
+    my ($duration, $last_duration, $total_duration, $discontinuity, $index) = (0, 6, 0, 0, 0);
     for my $line (split /\r?\n/, $body) {
         if ($line =~ /^#EXT-X-DISCONTINUITY/) { $discontinuity = 1; next; }
         if ($line =~ /^#EXTINF:([\d.]+)/) { $duration = $1; next; }
@@ -167,6 +197,7 @@ sub _parse_playlist {
         };
         $discontinuity = 0;
         $last_duration = $duration if $duration;
+        $total_duration += $duration;
     }
 
     # Start a live stream close to its live edge, rather than replaying a
@@ -175,6 +206,32 @@ sub _parse_playlist {
         @new = splice @new, -3;
     }
     ${*$self}{started} = 1 if @new;
+
+    if ($endlist) {
+        my $song = ${*$self}{song};
+        if ($song && $total_duration) {
+            $song->duration($total_duration);
+            Slim::Control::Request::notifyFromArray(
+                $song->master,
+                ['newmetadata'],
+            );
+        }
+
+        # HLS has no byte offset. Seek to the segment containing the desired
+        # time; the maximum inaccuracy is one HLS segment (usually 2 s).
+        if (defined ${*$self}{seek_time} && ${*$self}{seek_time} > 0) {
+            my ($elapsed, $first) = (0, 0);
+            for my $segment (@new) {
+                last if $elapsed + $segment->{duration} > ${*$self}{seek_time};
+                $elapsed += $segment->{duration};
+                $first++;
+            }
+            splice @new, 0, $first if $first;
+            $log->info(sprintf 'Twitch HLS VOD seek: %.1f s -> segment at %.1f s',
+                ${*$self}{seek_time}, $elapsed);
+        }
+    }
+
     push @{ ${*$self}{segments} }, @new;
     ${*$self}{endlist} = $endlist;
     ${*$self}{next_playlist} = time() + (($last_duration > 3) ? $last_duration - 2 : 1)

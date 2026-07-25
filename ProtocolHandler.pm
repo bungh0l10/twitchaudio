@@ -12,6 +12,7 @@ use Slim::Control::Request ();
 
 use Plugins::Twitch::API ();
 use Plugins::Twitch::Config ();
+use Plugins::Twitch::HLSStream ();
 
 my $log = logger('plugin.twitch');
 
@@ -19,7 +20,7 @@ sub _set_hls_args {
     my ($args) = @_;
 
     @$args{qw(parser contentType streamformat noVideo)} = (
-        'Plugins::PlayHLS::HLSPLAY',
+        'Plugins::Twitch::HLSStream',
         'audio/aac',
         'aac',
         1,

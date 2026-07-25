@@ -69,17 +69,19 @@ jobs:
             --output=TWITCH.zip \
             HEAD
 
-          if ! unzip -Z1 TWITCH.zip | grep -qx 'install.xml'; then
+          archive_entries="$(unzip -Z1 TWITCH.zip)"
+
+          if ! grep -qx 'install.xml' <<< "${archive_entries}"; then
             printf '%s\n' "install.xml missing from TWITCH.zip" >&2
             exit 1
           fi
 
-          if unzip -Z1 TWITCH.zip | grep -Eq '^(\.github|repo)/'; then
+          if grep -Eq '^(\.github|repo)/' <<< "${archive_entries}"; then
             printf '%s\n' "Release-only files found in TWITCH.zip" >&2
             exit 1
           fi
 
-          unzip -Z1 TWITCH.zip
+          printf '%s\n' "${archive_entries}"
 
       - name: Setup Perl
         if: steps.tag-check.outputs.exists == 'false'

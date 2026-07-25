@@ -18,8 +18,8 @@ use Slim::Utils::Versions ();
 use Time::HiRes qw(time);
 use URI;
 
-use Plugins::Twitch::HLS::MPEGTSAAC ();
-use Plugins::Twitch::HLS::MP4AAC ();
+use Plugins::Twitch::MPEGTSAAC ();
+use Plugins::Twitch::MP4AAC ();
 
 my $log = logger('plugin.twitch');
 
@@ -123,10 +123,10 @@ sub new {
     ${*$self}{seen}         = {};
     ${*$self}{epoch}        = 0;
     ${*$self}{last_sequence}= undef;
-    ${*$self}{ts_extractor} = Plugins::Twitch::HLS::MPEGTSAAC->new({
+    ${*$self}{ts_extractor} = Plugins::Twitch::MPEGTSAAC->new({
         log => $log,
     });
-    ${*$self}{mp4_extractor}= Plugins::Twitch::HLS::MP4AAC->new({
+    ${*$self}{mp4_extractor}= Plugins::Twitch::MP4AAC->new({
         log => $log,
     });
     ${*$self}{started}      = 0;
@@ -203,7 +203,7 @@ sub _parse_playlist {
     if (defined ${*$self}{last_sequence} && $sequence < ${*$self}{last_sequence}) {
         ${*$self}{epoch}++;
         ${*$self}{seen} = {};
-        ${*$self}{ts_extractor} = Plugins::Twitch::HLS::MPEGTSAAC->new({
+        ${*$self}{ts_extractor} = Plugins::Twitch::MPEGTSAAC->new({
             log => $log,
         });
         $log->info('Twitch HLS playlist sequence restarted');

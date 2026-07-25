@@ -1,4 +1,4 @@
-package Plugins::Twitch::HLS::MPEGTSAAC;
+package Plugins::Twitch::MPEGTSAAC;
 
 use strict;
 use warnings;

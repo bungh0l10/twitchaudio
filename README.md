@@ -345,4 +345,14 @@ Live and VOD classification must remain explicit. In particular, live tracks mus
 
 Twitch is a trademark of Twitch Interactive, Inc. This project is an independent LMS plugin and is not affiliated with or endorsed by Twitch.
 
-Users are responsible for complying with Twitch's terms and all applicable laws. This plugin only plays URLs made available through Twitch's playback flow and does not circumvent Twitch's copyright muting.
+This plugin is designed solely and exclusively for **audio-only playback**. It explicitly requests Twitch's `audio_only` HLS rendition and processes only the AAC audio contained in that rendition. It does not select, download, decode, transcode, reconstruct, display or forward Twitch video content.
+
+The plugin only processes unencrypted HLS media that Twitch makes available through its regular playback-token and playlist flow. The media accepted and handled by the plugin contains no DRM layer that the plugin must remove or bypass. The plugin contains no DRM implementation, decryption system, key-acquisition mechanism or code intended to defeat encryption, access controls, copy protection or any other technical protection measure. Encrypted or DRM-protected media is unsupported and is not processed.
+
+No deceptive, exploitative or otherwise improper method is used to obtain media. The plugin requests the normal Twitch playback data, selects the audio-only rendition advertised by Twitch, downloads the referenced unencrypted audio segments and converts their existing AAC payload into the ADTS-AAC framing required by LMS players. This container-level conversion neither decrypts the content nor removes a protection mechanism.
+
+The plugin also respects Twitch's copyright muting. Segments identified by Twitch as muted are skipped without attempting to recover, reconstruct or obtain the removed audio through another source.
+
+Nothing in this notice should be read as a general claim that every service, stream or item offered by Twitch is necessarily free of DRM. It describes only the unencrypted audio-only HLS media accepted by this plugin and the behavior implemented in this repository.
+
+Users are responsible for complying with Twitch's terms, the rights of content owners and all applicable laws in their jurisdiction.

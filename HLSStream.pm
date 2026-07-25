@@ -50,6 +50,17 @@ sub getSeekData {
     return { timeOffset => $newtime };
 }
 
+sub _set_progress_offset {
+    my ($song, $offset) = @_;
+    return unless $song && defined $offset;
+
+    $song->startOffset($offset);
+
+    my $client = $song->master;
+    $client->remoteStreamStartTime(time() - $offset)
+        if $client && $client->can('remoteStreamStartTime');
+}
+
 sub getMetadataFor {
     my ($class, $client, $url) = @_;
     my $song = $client && $client->playingSong or return {};
@@ -110,6 +121,12 @@ sub new {
     ${*$self}{seek_time}    = ($song && $song->seekdata)
         ? $song->seekdata->{timeOffset}
         : undef;
+
+    # HLS seeking starts a fresh stream at the selected segment. Tell LMS
+    # which VOD timestamp that new stream represents, otherwise its elapsed
+    # time (and therefore the progress marker) starts at zero again.
+    _set_progress_offset($song, ${*$self}{seek_time})
+        if defined ${*$self}{seek_time} && ${*$self}{seek_time} > 0;
 
     $log->info("Twitch HLS reader opened: $url");
     $self->_fetch_playlist;
@@ -227,6 +244,7 @@ sub _parse_playlist {
                 $first++;
             }
             splice @new, 0, $first if $first;
+            _set_progress_offset(${*$self}{song}, $elapsed);
             $log->info(sprintf 'Twitch HLS VOD seek: %.1f s -> segment at %.1f s',
                 ${*$self}{seek_time}, $elapsed);
         }

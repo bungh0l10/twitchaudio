@@ -70,6 +70,9 @@ sub _twitch_media_id {
     for my $candidate (@urls) {
         next unless defined $candidate;
         return ($1, $2) if $candidate =~ /^twitch:(live|vod):([^|?#]+)/;
+        my $mapped = Slim::Utils::Cache->new->get("twitch:media-for-url:$candidate");
+        return ($1, $2) if defined $mapped
+            && $mapped =~ /^(live|vod):([^|?#]+)/;
     }
 
     return;
@@ -77,22 +80,37 @@ sub _twitch_media_id {
 
 sub _restore_cached_metadata {
     my ($song, $url) = @_;
-    return {} unless $song;
-
-    my $meta = $song->pluginData('wmaMeta');
-    return $meta if ref $meta eq 'HASH'
-        && ($meta->{title} || $meta->{artist} || $meta->{cover});
-
     my ($type, $id) = _twitch_media_id($song, $url);
-    return {} unless $type && $id;
-
-    $id = lc $id if $type eq 'live';
-    $meta = Slim::Utils::Cache->new->get("twitch:$type:$id");
+    my $meta;
+    if ($type && $id) {
+        $id = lc $id if $type eq 'live';
+        $meta = Slim::Utils::Cache->new->get("twitch:$type:$id");
+        return {} unless ref $meta eq 'HASH';
+    } else {
+        $meta = $song ? $song->pluginData('wmaMeta') : undef;
+    }
     return {} unless ref $meta eq 'HASH';
 
-    $song->pluginData('twitchMediaType', $type);
-    $song->pluginData('wmaMeta', $meta);
+    if ($song) {
+        $song->pluginData('twitchMediaType', $type);
+        $song->pluginData('wmaMeta', $meta);
+    }
     return $meta;
+}
+
+sub _song_for_url {
+    my ($client, $url) = @_;
+    return unless $client;
+
+    if ($client->can('currentSongForUrl')) {
+        my $song = $client->currentSongForUrl($url);
+        return $song if $song;
+    }
+
+    # Never bind metadata for an explicitly identifiable URL to whichever
+    # song happens to still be playing during a track transition.
+    return if _twitch_media_id(undef, $url);
+    return $client->playingSong;
 }
 
 sub canSeek {
@@ -153,12 +171,12 @@ sub _clear_live_duration {
 
 sub getMetadataFor {
     my ($class, $client, $url) = @_;
-    my $song = $client && $client->playingSong or return {};
-    $song->currentTrack or return {};
+    my $song = _song_for_url($client, $url);
 
     my $meta = _restore_cached_metadata($song, $url);
-    my $is_vod = _is_vod_song($song);
-    my $bitrate = $song->bitrate
+    my ($url_type) = _twitch_media_id(undef, $url);
+    my $is_vod = $url_type ? $url_type eq 'vod' : _is_vod_song($song);
+    my $bitrate = $song && $song->bitrate
         ? sprintf('%dkbps', int(($song->bitrate + 500) / 1000))
         : undef;
     my $type = 'AAC (Twitch)';
@@ -168,7 +186,7 @@ sub getMetadataFor {
         artist       => $meta->{artist},
         cover        => $meta->{cover},
         icon         => $meta->{cover},
-        duration     => $is_vod ? ($song->duration || undef) : undef,
+        duration     => $is_vod && $song ? ($song->duration || undef) : undef,
         bitrate      => $bitrate,
         type         => $type,
         originalType => $type,
@@ -219,8 +237,24 @@ sub new {
 
     my $self = $class->SUPER::new;
     ${*$self}{song} = $song;
+    ${*$self}{playlist_url} = $url;
+    ${*$self}{is_vod} = $is_vod;
+    ${*$self}{resume_time} = $seek_time;
+    $self->_start_session;
+
+    $log->info('Twitch HLS reader opened');
+    $log->debug("Twitch HLS playlist URL: $url");
+    return $self;
+}
+
+sub _start_session {
+    my ($self) = @_;
+    my $song = ${*$self}{song};
+    my $is_vod = ${*$self}{is_vod};
+    my $seek_time = $is_vod ? ${*$self}{resume_time} : undef;
+
     ${*$self}{session} = Plugins::Twitch::HLS::Session->new({
-        playlist_url => $url,
+        playlist_url => ${*$self}{playlist_url},
         is_vod       => $is_vod,
         seek_time    => $seek_time,
         log          => $log,
@@ -243,14 +277,16 @@ sub new {
             _set_progress_offset($song, $offset);
         },
     });
-
-    $log->info('Twitch HLS reader opened');
-    $log->debug("Twitch HLS playlist URL: $url");
-    return $self;
+    ${*$self}{closed} = 0;
+    return;
 }
 
 sub close {
     my ($self) = @_;
+    if (${*$self}{is_vod} && ${*$self}{session}) {
+        my $position = ${*$self}{session}->position;
+        ${*$self}{resume_time} = $position if $position > 0;
+    }
     ${*$self}{closed} = 1;
     ${*$self}{session}->close if ${*$self}{session};
     delete ${*$self}{session};
@@ -259,7 +295,10 @@ sub close {
 
 sub sysread {
     my ($self, undef, $max_bytes) = @_;
-    return 0 if ${*$self}{closed};
+    if (${*$self}{closed} || !${*$self}{session}) {
+        $log->info('Twitch HLS reader resumed after standby');
+        $self->_start_session;
+    }
 
     my $bytes = ${*$self}{session}->read($max_bytes);
     if (defined $bytes) {

@@ -36,6 +36,24 @@ sub _native_hls_url {
     return $url;
 }
 
+sub _song_for_media_id {
+    my ($client, $id) = @_;
+    return unless $client;
+    if ($client->can('currentSongForUrl')) {
+        my $song = $client->currentSongForUrl("twitch:$id");
+        return $song if $song;
+    }
+
+    my $song = $client->playingSong or return;
+    for my $method (qw(track currentTrack)) {
+        next unless $song->can($method);
+        my $track = $song->$method or next;
+        return $song if $track->can('url')
+            && ($track->url || '') =~ /^twitch:\Q$id\E(?:[|?#]|$)/;
+    }
+    return;
+}
+
 sub canDirectStream { 0 }
 sub isAudio          { 1 }
 sub isRemote         { 1 }
@@ -49,7 +67,7 @@ sub getMetadataFor {
     if (!$meta->{artist} && !$meta->{cover}
         && $client && $url =~ /^twitch:(live|vod):([^|?#]+)/)
     {
-        my $song = $client->playingSong;
+        my $song = _song_for_media_id($client, "$1:$2");
         if ($song && !$song->pluginData('twitchMetadataRefreshRequested')) {
             $song->pluginData('twitchMetadataRefreshRequested', 1);
             _applyInitialMetadata($client, "$1:$2");
@@ -126,9 +144,17 @@ sub _scan_stream {
         $log->debug("TWITCH $stream_type STREAM URL: $stream_url");
 
         my $native_url = _native_hls_url($stream_url);
+        my $cache = Slim::Utils::Cache->new;
+        for my $url ($stream_url, $native_url) {
+            $cache->set(
+                "twitch:media-for-url:$url",
+                $media_id,
+                Plugins::Twitch::Config::cache_ttl(),
+            );
+        }
         _set_hls_args($args);
         Slim::Utils::Scanner::Remote->scanURL($native_url, $args);
-        _applyInitialMetadata($client, $media_id);
+        _applyInitialMetadata($client, $media_id, $song);
 
         return;
     });
@@ -137,11 +163,12 @@ sub _scan_stream {
 }
 
 sub _applyInitialMetadata {
-    my ($client, $id) = @_;
+    my ($client, $id, $song) = @_;
 
     return unless $client && $id;
 
-    my $song = $client->playingSong or return;
+    $song ||= _song_for_media_id($client, $id);
+    return unless $song;
     my $cache = Slim::Utils::Cache->new;
 
     if ($id =~ /^vod:(\d+)$/) {
@@ -160,7 +187,7 @@ sub _applyInitialMetadata {
 
             return unless $vod;
 
-            my $current = $client->playingSong or return;
+            my $current = $song;
 
             my $meta = {
                 title  => $vod->{title} // 'VOD',
@@ -199,7 +226,7 @@ sub _applyInitialMetadata {
 
         my $u = $data->{user};
 
-        my $current = $client->playingSong or return;
+        my $current = $song;
 
         my $meta = {
             title  => $u->{stream}->{title} // 'Offline',

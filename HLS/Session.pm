@@ -32,6 +32,7 @@ sub new {
         epoch         => 0,
         started       => 0,
         next_playlist => 0,
+        position      => $args->{seek_time} || 0,
     }, $class;
 
     $self->_reset_extractors;
@@ -44,6 +45,11 @@ sub close {
     $self->{closed} = 1;
     delete @$self{qw(playlist_request init_request segment_request)};
     return;
+}
+
+sub position {
+    my ($self) = @_;
+    return $self->{position} || 0;
 }
 
 sub _reset_extractors {
@@ -137,7 +143,17 @@ sub _apply_playlist {
         my $target = $playlist->segment_at($self->{seek_time});
         if ($target) {
             @new = grep { $_->{sequence} >= $target->{sequence} } @new;
-            $self->{on_seek}->($target->{start_time});
+            if (@new && $target->{duration}) {
+                $new[0]{initial_fraction} =
+                    ($self->{seek_time} - $target->{start_time})
+                    / $target->{duration};
+                $new[0]{initial_fraction} = 0
+                    if $new[0]{initial_fraction} < 0;
+                $new[0]{initial_fraction} = 1
+                    if $new[0]{initial_fraction} > 1;
+            }
+            $self->{on_seek}->($self->{seek_time});
+            $self->{position} = $self->{seek_time};
             $self->{log}->info(sprintf(
                 'Twitch HLS VOD seek: %.1f s -> segment at %.1f s',
                 $self->{seek_time}, $target->{start_time},
@@ -233,6 +249,12 @@ sub _fetch_segments {
             delete $self->{segment_request};
             delete $segment->{retry_at};
             $segment->{aac} = $self->_extract_segment($segment, $media);
+            if ($segment->{initial_fraction} && length($segment->{aac})) {
+                $segment->{offset} = int(
+                    length($segment->{aac}) * $segment->{initial_fraction}
+                );
+                delete $segment->{initial_fraction};
+            }
             $self->_report_bitrate($segment);
             $self->{log}->debug(sprintf(
                 'Twitch HLS %s segment: %d bytes, %d ADTS bytes',
@@ -290,6 +312,8 @@ sub read {
     {
         my $segment = $self->{segments}[0];
         if (!length($segment->{aac})) {
+            $self->{position} = ($segment->{start_time} || 0)
+                + ($segment->{duration} || 0);
             shift @{ $self->{segments} };
             next;
         }
@@ -297,6 +321,11 @@ sub read {
         my $offset = $segment->{offset} || 0;
         my $bytes = substr($segment->{aac}, $offset, $max_bytes);
         $segment->{offset} = $offset + length($bytes);
+        if (length($segment->{aac})) {
+            $self->{position} = ($segment->{start_time} || 0)
+                + ($segment->{duration} || 0)
+                    * $segment->{offset} / length($segment->{aac});
+        }
         shift @{ $self->{segments} }
             if $segment->{offset} >= length($segment->{aac});
         $self->_fetch_segments;

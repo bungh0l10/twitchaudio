@@ -1,7 +1,7 @@
 package Plugins::Twitch::HLSStream;
 
-# Native HLS (MPEG-TS/ADTS) reader for Twitch audio renditions.  This is an
-# IO::Handle because LMS consumes protocol handlers through sysread().
+# Native HLS reader for Twitch MPEG-TS and fragmented MP4 audio renditions.
+# This is an IO::Handle because LMS consumes protocol handlers via sysread().
 
 use strict;
 use warnings;
@@ -18,15 +18,16 @@ use Slim::Utils::Versions ();
 use Time::HiRes qw(time);
 use URI;
 
+use Plugins::Twitch::HLS::MPEGTSAAC ();
+use Plugins::Twitch::HLS::MP4AAC ();
+
 my $log = logger('plugin.twitch');
 
 Slim::Player::ProtocolHandlers->registerHandler('twitchhls', __PACKAGE__);
 
 use constant {
-    TS_PACKET_SIZE  => 188,
-    HTTP_TIMEOUT    => 20,
-    PREFETCH        => 3,
-    MAX_ADTS_BUFFER => 2_000_000,
+    HTTP_TIMEOUT => 20,
+    PREFETCH     => 3,
 };
 
 # LMS releases before 7.9.1 retry an IO handler only for EINTR.  Newer LMS
@@ -122,8 +123,12 @@ sub new {
     ${*$self}{seen}         = {};
     ${*$self}{epoch}        = 0;
     ${*$self}{last_sequence}= undef;
-    ${*$self}{adts_buffer}  = '';
-    ${*$self}{cc}           = {};
+    ${*$self}{ts_extractor} = Plugins::Twitch::HLS::MPEGTSAAC->new({
+        log => $log,
+    });
+    ${*$self}{mp4_extractor}= Plugins::Twitch::HLS::MP4AAC->new({
+        log => $log,
+    });
     ${*$self}{started}      = 0;
     ${*$self}{next_playlist}= 0;
     ${*$self}{seek_time}    = ($song && $song->seekdata)
@@ -145,6 +150,7 @@ sub close {
     my ($self) = @_;
     ${*$self}{closed} = 1;
     delete ${*$self}{playlist_request};
+    delete ${*$self}{init_request};
     delete ${*$self}{segment_request};
     return;
 }
@@ -197,17 +203,26 @@ sub _parse_playlist {
     if (defined ${*$self}{last_sequence} && $sequence < ${*$self}{last_sequence}) {
         ${*$self}{epoch}++;
         ${*$self}{seen} = {};
-        ${*$self}{cc} = {};
-        delete ${*$self}{audio_pid};
+        ${*$self}{ts_extractor} = Plugins::Twitch::HLS::MPEGTSAAC->new({
+            log => $log,
+        });
         $log->info('Twitch HLS playlist sequence restarted');
     }
     ${*$self}{last_sequence} = $sequence;
 
     my $endlist = $body =~ /#EXT-X-ENDLIST/;
     my @new;
-    my ($duration, $last_duration, $total_duration, $discontinuity, $index) = (0, 6, 0, 0, 0);
+    my ($duration, $last_duration, $total_duration, $discontinuity, $index)
+        = (0, 6, 0, 0, 0);
+    my $map_url;
     for my $line (split /\r?\n/, $body) {
         if ($line =~ /^#EXT-X-DISCONTINUITY/) { $discontinuity = 1; next; }
+        if ($line =~ /^#EXT-X-MAP:.*\bURI="([^"]+)"/) {
+            $map_url = URI->new_abs(
+                $1, ${*$self}{playlist_url},
+            )->as_string;
+            next;
+        }
         if ($line =~ /^#EXTINF:([\d.]+)/) { $duration = $1; next; }
         next if $line =~ /^#/ || $line !~ /\S/;
 
@@ -219,6 +234,8 @@ sub _parse_playlist {
             url           => URI->new_abs($line, ${*$self}{playlist_url})->as_string,
             duration      => $duration,
             discontinuity => $discontinuity,
+            map_url       => $map_url,
+            container     => $map_url ? 'mp4' : undef,
         };
         $discontinuity = 0;
         $last_duration = $duration if $duration;
@@ -278,16 +295,21 @@ sub _fetch_segments {
 
     for my $segment (@$segments) {
         next if $segment->{fetching} || defined $segment->{aac};
+
+        if ($segment->{map_url}
+            && (!${*$self}{current_init_url}
+                || ${*$self}{current_init_url} ne $segment->{map_url}))
+        {
+            $self->_fetch_init($segment->{map_url});
+            return;
+        }
+
         $segment->{fetching} = 1;
         ${*$self}{segment_request} = $self->_request($segment->{url}, sub {
-            my ($ts) = @_;
+            my ($media) = @_;
             delete ${*$self}{segment_request};
             delete $segment->{fetching};
-            # Twitch restarts continuity counters at HLS segment boundaries.
-            # Each segment is self-contained, so retain ADTS carry-over but
-            # start a new TS continuity epoch for it.
-            ${*$self}{cc} = {};
-            $segment->{aac} = $self->_extract_adts($ts);
+            $segment->{aac} = $self->_extract_segment($segment, $media);
             if ($segment->{duration} && length($segment->{aac})) {
                 my $bitrate = length($segment->{aac}) * 8 / $segment->{duration};
                 # AAC is usually VBR. Round the short segment measurement to
@@ -303,8 +325,9 @@ sub _fetch_segments {
                     );
                 }
             }
-            $log->info(sprintf 'Twitch HLS segment: %d TS bytes, %d ADTS bytes',
-                length($ts || ''), length($segment->{aac}));
+            $log->info(sprintf 'Twitch HLS %s segment: %d bytes, %d ADTS bytes',
+                uc($segment->{container} || 'mpeg-ts'),
+                length($media || ''), length($segment->{aac}));
             $self->_fetch_segments;
         }, sub {
             my ($error) = @_;
@@ -316,116 +339,46 @@ sub _fetch_segments {
     }
 }
 
-sub _payload {
-    my ($packet) = @_;
-    return unless length($packet) == TS_PACKET_SIZE && substr($packet, 0, 1) eq "\x47";
-    my ($b1, $b2, $b3) = unpack('xC3', $packet);
-    my $adaptation = ($b3 >> 4) & 3;
-    return if !$adaptation;
-    my $offset = 4;
-    if ($adaptation == 2 || $adaptation == 3) {
-        my $length = ord(substr($packet, $offset, 1));
-        $offset += 1 + $length;
-    }
-    return if $offset >= TS_PACKET_SIZE || !($adaptation == 1 || $adaptation == 3);
-    return {
-        pid     => (($b1 & 0x1f) << 8) | $b2,
-        pusi    => ($b1 >> 6) & 1,
-        cc      => $b3 & 0x0f,
-        payload => substr($packet, $offset),
-    };
+sub _fetch_init {
+    my ($self, $url) = @_;
+    return if ${*$self}{closed} || ${*$self}{init_request};
+
+    ${*$self}{init_request} = $self->_request($url, sub {
+        my ($init) = @_;
+        delete ${*$self}{init_request};
+        if (${*$self}{mp4_extractor}->set_init($init)) {
+            ${*$self}{current_init_url} = $url;
+            $self->_fetch_segments;
+        } else {
+            $log->warn("Twitch HLS MP4 init segment is unsupported: $url");
+        }
+    }, sub {
+        my ($error) = @_;
+        delete ${*$self}{init_request};
+        $log->warn("Twitch HLS MP4 init request failed: $error");
+    });
 }
 
-sub _psi_section {
-    my ($payload, $pusi) = @_;
-    return unless $pusi && length($payload);
-    my $pointer = ord(substr($payload, 0, 1));
-    $payload = substr($payload, 1 + $pointer);
-    return unless length($payload) >= 3;
-    my $length = ((ord(substr($payload, 1, 1)) & 0x0f) << 8) | ord(substr($payload, 2, 1));
-    return if $length < 4 || $length > 4093 || length($payload) < 3 + $length;
-    return substr($payload, 0, 3 + $length);
-}
+sub _extract_segment {
+    my ($self, $segment, $media) = @_;
+    return '' unless defined $media;
 
-sub _find_pids {
-    my ($self, $ts) = @_;
-    my $pmt_pid;
-    for (my $i = 0; $i + TS_PACKET_SIZE <= length($ts); $i += TS_PACKET_SIZE) {
-        my $h = _payload(substr($ts, $i, TS_PACKET_SIZE)) or next;
-        next unless $h->{pid} == 0;
-        my $section = _psi_section($h->{payload}, $h->{pusi}) or next;
-        next unless ord(substr($section, 0, 1)) == 0;
-        for (my $p = 8; $p + 4 <= length($section) - 4; $p += 4) {
-            my $program = unpack('n', substr($section, $p, 2));
-            if ($program) { $pmt_pid = ((ord(substr($section, $p + 2, 1)) & 0x1f) << 8) | ord(substr($section, $p + 3, 1)); last; }
-        }
-        last if defined $pmt_pid;
+    if ($segment->{container} && $segment->{container} eq 'mp4') {
+        return ${*$self}{mp4_extractor}->extract($media);
     }
-    return unless defined $pmt_pid;
-    for (my $i = 0; $i + TS_PACKET_SIZE <= length($ts); $i += TS_PACKET_SIZE) {
-        my $h = _payload(substr($ts, $i, TS_PACKET_SIZE)) or next;
-        next unless $h->{pid} == $pmt_pid;
-        my $section = _psi_section($h->{payload}, $h->{pusi}) or next;
-        next unless ord(substr($section, 0, 1)) == 2 && length($section) >= 16;
-        my $pos = 12 + (((ord(substr($section, 10, 1)) & 0x0f) << 8) | ord(substr($section, 11, 1)));
-        my $end = length($section) - 4;
-        while ($pos + 5 <= $end) {
-            my $type = ord(substr($section, $pos, 1));
-            my $pid = ((ord(substr($section, $pos + 1, 1)) & 0x1f) << 8) | ord(substr($section, $pos + 2, 1));
-            my $len = ((ord(substr($section, $pos + 3, 1)) & 0x0f) << 8) | ord(substr($section, $pos + 4, 1));
-            return $pid if $type == 0x0f; # AAC with ADTS framing
-            $pos += 5 + $len;
-        }
-    }
-    return;
-}
 
-sub _extract_adts {
-    my ($self, $ts) = @_;
-    return '' unless defined $ts;
-    ${*$self}{audio_pid} //= $self->_find_pids($ts);
-    my $pid = ${*$self}{audio_pid};
-    unless (defined $pid) {
-        unless (${*$self}{reported_no_audio_pid}++) {
-            $log->warn('Twitch HLS: no AAC PID found in PAT/PMT; stream is not MPEG-TS AAC');
-        }
+    # EXT-X-MAP is authoritative, but sniff fragmented MP4 as a fallback for
+    # non-conforming playlists which omit it.
+    if (length($media) >= 8
+        && substr($media, 4, 4) =~ /^(?:ftyp|styp|moof)$/)
+    {
+        $segment->{container} = 'mp4';
+        $log->warn('Twitch HLS MP4 segment has no EXT-X-MAP; cannot decode it');
         return '';
     }
-    $log->info(sprintf 'Twitch HLS AAC PID: 0x%04x', $pid)
-        unless ${*$self}{reported_audio_pid}++;
 
-    my $pes = '';
-    for (my $i = 0; $i + TS_PACKET_SIZE <= length($ts); $i += TS_PACKET_SIZE) {
-        my $h = _payload(substr($ts, $i, TS_PACKET_SIZE)) or next;
-        next unless $h->{pid} == $pid;
-        if (defined ${*$self}{cc}{$pid} && $h->{cc} != ((${*$self}{cc}{$pid} + 1) & 0x0f)) {
-            $log->debug("Twitch TS continuity jump on audio PID $pid");
-        }
-        ${*$self}{cc}{$pid} = $h->{cc};
-        my $payload = $h->{payload};
-        if ($h->{pusi} && substr($payload, 0, 3) eq "\x00\x00\x01") {
-            next unless length($payload) >= 9;
-            $payload = substr($payload, 9 + ord(substr($payload, 8, 1)));
-        }
-        $pes .= $payload;
-    }
-
-    my $buffer = ${*$self}{adts_buffer} . $pes;
-    my $out = '';
-    while (length($buffer) >= 7) {
-        my $sync = index($buffer, "\xff");
-        last if $sync < 0;
-        substr($buffer, 0, $sync, '') if $sync;
-        last if length($buffer) < 7;
-        if ((ord(substr($buffer, 1, 1)) & 0xf6) != 0xf0) { substr($buffer, 0, 1, ''); next; }
-        my $length = ((ord(substr($buffer, 3, 1)) & 3) << 11) | (ord(substr($buffer, 4, 1)) << 3) | ((ord(substr($buffer, 5, 1)) & 0xe0) >> 5);
-        if ($length < 7 || $length > 8192) { substr($buffer, 0, 1, ''); next; }
-        last if length($buffer) < $length;
-        $out .= substr($buffer, 0, $length, '');
-    }
-    substr($buffer, 0, length($buffer) - 500_000, '') if length($buffer) > MAX_ADTS_BUFFER;
-    ${*$self}{adts_buffer} = $buffer;
-    return $out;
+    $segment->{container} = 'mpeg-ts';
+    return ${*$self}{ts_extractor}->extract($media);
 }
 
 sub sysread {

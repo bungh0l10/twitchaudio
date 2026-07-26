@@ -218,16 +218,10 @@ sub getMetadataFor {
     my $audio_info = $song
         ? $song->pluginData('twitchAudioInfo')
         : undef;
-    my $codec = 'AAC';
-    if (ref $audio_info eq 'HASH') {
-        my @details;
-        push @details, $audio_info->{profile}
-            if defined $audio_info->{profile};
-        push @details, sprintf('%g kHz', $audio_info->{sample_rate} / 1000)
-            if $audio_info->{sample_rate};
-        $codec = join(', ', @details) if @details;
-    }
-    my $original_type = 'AAC (Twitch)';
+    my $type = 'AAC (Twitch)';
+    my $sample_rate = ref $audio_info eq 'HASH'
+        ? $audio_info->{sample_rate}
+        : undef;
 
     return {
         title        => $meta->{title},
@@ -238,9 +232,10 @@ sub getMetadataFor {
         # AAC is commonly variable-bitrate. Do not expose the previous
         # segment-duration estimate as an exact technical property.
         bitrate      => undef,
-        type         => $codec,
-        originalType => $original_type,
-        originaltype => $original_type,
+        samplerate   => $sample_rate,
+        type         => $type,
+        originalType => $type,
+        originaltype => $type,
         url          => $url,
     };
 }

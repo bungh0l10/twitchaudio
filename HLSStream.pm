@@ -218,15 +218,16 @@ sub getMetadataFor {
     my $audio_info = $song
         ? $song->pluginData('twitchAudioInfo')
         : undef;
-    my $type = 'AAC';
+    my $codec = 'AAC';
     if (ref $audio_info eq 'HASH') {
         my @details;
         push @details, $audio_info->{profile}
             if defined $audio_info->{profile};
         push @details, sprintf('%g kHz', $audio_info->{sample_rate} / 1000)
             if $audio_info->{sample_rate};
-        $type = join(', ', @details) if @details;
+        $codec = join(', ', @details) if @details;
     }
+    my $type = "$codec (Twitch)";
 
     return {
         title        => $meta->{title},

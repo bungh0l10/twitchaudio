@@ -6,8 +6,9 @@ use warnings;
 use Slim::Utils::Prefs qw(preferences);
 
 use constant {
-    DEFAULT_CACHE_TTL => 3600,
-    DEFAULT_CLIENT_ID => 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+    DEFAULT_CACHE_TTL      => 3600,
+    DEFAULT_LIVE_CACHE_TTL => 300,
+    DEFAULT_CLIENT_ID      => 'kimne78kx3ncx6brgo4mv6wki5h1ko',
 };
 
 my $prefs = preferences('plugin.twitch');
@@ -15,10 +16,20 @@ my $prefs = preferences('plugin.twitch');
 sub init {
     $prefs->init({
         cache_ttl => DEFAULT_CACHE_TTL,
+        live_cache_ttl => DEFAULT_LIVE_CACHE_TTL,
         client_id => DEFAULT_CLIENT_ID,
     });
 
     return;
+}
+
+sub live_cache_ttl {
+    my $ttl = $prefs->get('live_cache_ttl');
+
+    return DEFAULT_LIVE_CACHE_TTL
+        unless defined $ttl && $ttl =~ /^\d+$/ && $ttl > 0;
+
+    return $ttl;
 }
 
 sub cache_ttl {

@@ -9,12 +9,68 @@ use Slim::Utils::Log;
 use Slim::Utils::Scanner::Remote ();
 use Slim::Utils::Cache;
 use Slim::Control::Request ();
+use Time::HiRes qw(time);
 
 use Plugins::Twitch::API ();
 use Plugins::Twitch::Config ();
 use Plugins::Twitch::HLSStream ();
 
 my $log = logger('plugin.twitch');
+
+use constant METADATA_RETRY_DELAY => 30;
+
+sub _metadata_refresh_allowed {
+    my ($song) = @_;
+    return unless $song;
+    return if $song->pluginData('twitchMetadataRefreshRequested');
+
+    my $refresh_after = $song->pluginData('twitchMetadataRefreshAfter') || 0;
+    return time() >= $refresh_after ? 1 : 0;
+}
+
+sub _begin_metadata_refresh {
+    my ($song) = @_;
+    return unless _metadata_refresh_allowed($song);
+
+    $song->pluginData('twitchMetadataRefreshRequested', 1);
+    $song->pluginData(
+        'twitchMetadataRefreshAfter',
+        time() + METADATA_RETRY_DELAY,
+    );
+    return 1;
+}
+
+sub _finish_metadata_refresh {
+    my ($song, $success, $success_ttl) = @_;
+    return unless $song;
+
+    $song->pluginData('twitchMetadataRefreshRequested', 0);
+    $song->pluginData(
+        'twitchMetadataRefreshAfter',
+        time() + ($success ? $success_ttl : METADATA_RETRY_DELAY),
+    );
+    return;
+}
+
+sub _apply_song_metadata {
+    my ($client, $song, $meta) = @_;
+    return unless $client && $song && ref $meta eq 'HASH';
+
+    my $current = $song->pluginData('wmaMeta');
+    if (ref $current eq 'HASH') {
+        my $changed = 0;
+        for my $field (qw(title artist cover)) {
+            my $old = defined $current->{$field} ? $current->{$field} : '';
+            my $new = defined $meta->{$field} ? $meta->{$field} : '';
+            $changed = 1 if $old ne $new;
+        }
+        return unless $changed;
+    }
+
+    $song->pluginData('wmaMeta', $meta);
+    Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
+    return 1;
+}
 
 sub _set_hls_args {
     my ($args) = @_;
@@ -64,13 +120,14 @@ sub getMetadataFor {
     my ($class, $client, $url) = @_;
     my $meta = Plugins::Twitch::HLSStream->getMetadataFor($client, $url);
 
-    if (!$meta->{artist} && !$meta->{cover}
-        && $client && $url =~ /^twitch:(live|vod):([^|?#]+)/)
+    if ($client && $url =~ /^twitch:(live|vod):([^|?#]+)/)
     {
-        my $song = _song_for_media_id($client, "$1:$2");
-        if ($song && !$song->pluginData('twitchMetadataRefreshRequested')) {
-            $song->pluginData('twitchMetadataRefreshRequested', 1);
-            _applyInitialMetadata($client, "$1:$2");
+        my ($type, $value) = ($1, $2);
+        my $song = _song_for_media_id($client, "$type:$value");
+        if ($song && ($type eq 'live'
+            || (!$meta->{artist} && !$meta->{cover})))
+        {
+            _applyInitialMetadata($client, "$type:$value", $song);
         }
     }
 
@@ -177,17 +234,21 @@ sub _applyInitialMetadata {
         my $meta = $cache->get("twitch:vod:$vod_id");
 
         if ($meta) {
-            $song->pluginData('wmaMeta', $meta);
-            Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
+            _apply_song_metadata($client, $song, $meta);
             return;
         }
+
+        return unless _begin_metadata_refresh($song);
 
         Plugins::Twitch::API::getVodMeta($vod_id, sub {
             my ($vod) = @_;
 
+            _finish_metadata_refresh(
+                $song,
+                $vod ? 1 : 0,
+                Plugins::Twitch::Config::cache_ttl(),
+            );
             return unless $vod;
-
-            my $current = $song;
 
             my $meta = {
                 title  => $vod->{title} // 'VOD',
@@ -195,8 +256,7 @@ sub _applyInitialMetadata {
                 cover  => $vod->{thumbnail},
             };
 
-            $current->pluginData('wmaMeta', $meta);
-            Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
+            _apply_song_metadata($client, $song, $meta);
 
             $cache->set(
                 "twitch:vod:$vod_id",
@@ -211,22 +271,30 @@ sub _applyInitialMetadata {
     my ($type, $channel) = split /:/, $id, 2;
     $channel ||= $id;
 
-    my $meta = $cache->get("twitch:live:$channel");
-
-    if ($meta) {
-        $song->pluginData('wmaMeta', $meta);
-        Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
-        return;
+    my $current_meta = $song->pluginData('wmaMeta');
+    unless (ref $current_meta eq 'HASH'
+        && ($current_meta->{title}
+            || $current_meta->{artist}
+            || $current_meta->{cover}))
+    {
+        my $meta = $cache->get("twitch:live:$channel");
+        _apply_song_metadata($client, $song, $meta) if $meta;
     }
+
+    return unless _begin_metadata_refresh($song);
 
     Plugins::Twitch::API::getChannel($channel, sub {
         my ($data) = @_;
 
+        my $success = $data && $data->{user} ? 1 : 0;
+        _finish_metadata_refresh(
+            $song,
+            $success,
+            Plugins::Twitch::Config::live_cache_ttl(),
+        );
         return unless $data && $data->{user};
 
         my $u = $data->{user};
-
-        my $current = $song;
 
         my $meta = {
             title  => $u->{stream}->{title} // 'Offline',
@@ -234,13 +302,12 @@ sub _applyInitialMetadata {
             cover  => $u->{profileImageURL},
         };
 
-        $current->pluginData('wmaMeta', $meta);
-        Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
+        _apply_song_metadata($client, $song, $meta);
 
         $cache->set(
             "twitch:live:$channel",
             $meta,
-            Plugins::Twitch::Config::cache_ttl(),
+            Plugins::Twitch::Config::live_cache_ttl(),
         );
     });
 

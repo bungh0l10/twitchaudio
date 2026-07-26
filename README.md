@@ -228,7 +228,7 @@ Metadata includes:
 - VOD duration only;
 - measured AAC bitrate when available.
 
-Metadata is stored in LMS's cache for the configured cache lifetime and attached to the song as `wmaMeta`, which allows standard LMS metadata consumers and skins such as Material Skin to display it.
+Metadata is stored in LMS's cache for the configured cache lifetime and attached to the song as `wmaMeta`, which allows standard LMS metadata consumers and skins such as Material Skin to display it. Cached live metadata is applied immediately while a background request refreshes it. Successful live refreshes are limited by `live_cache_ttl`; failed refreshes may be retried after 30 seconds. VOD metadata continues to use the longer general cache lifetime.
 
 Metadata resolution is URL-authoritative. The plugin first matches the requested URL to its Twitch media identity instead of blindly using `playingSong`. This prevents artwork, artist or VOD duration from leaking into another item during an asynchronous track transition.
 
@@ -253,12 +253,13 @@ The plugin does not attempt to recover, replace or bypass audio muted by Twitch.
 
 ## Configuration
 
-The plugin initializes two LMS preferences in the `plugin.twitch` namespace:
+The plugin initializes three LMS preferences in the `plugin.twitch` namespace:
 
 | Preference | Default | Purpose |
 | --- | ---: | --- |
 | `client_id` | `kimne78kx3ncx6brgo4mv6wki5h1ko` | Client ID sent to Twitch GraphQL requests. |
-| `cache_ttl` | `3600` | Lifetime in seconds for channel metadata, VOD metadata and media-URL associations. |
+| `cache_ttl` | `3600` | Lifetime in seconds for VOD metadata and media-URL associations. |
+| `live_cache_ttl` | `300` | Lifetime and refresh interval in seconds for live-channel metadata. |
 
 Invalid, empty or non-positive values fall back to their defaults. There is currently no dedicated settings page; preferences must be changed through LMS configuration mechanisms or by modifying the plugin defaults.
 

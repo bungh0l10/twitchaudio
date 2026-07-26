@@ -3,7 +3,7 @@ package Plugins::Twitch::API;
 use strict;
 use warnings;
 
-use JSON::XS::VersionOneAndTwo qw(encode_json decode_json);
+use JSON::XS qw(encode_json decode_json);
 use URI;
 use Try::Tiny;
 use Slim::Networking::SimpleAsyncHTTP;

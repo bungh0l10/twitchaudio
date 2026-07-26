@@ -11,7 +11,6 @@ use base qw(IO::Handle);
 
 use Slim::Player::ProtocolHandlers;
 use Slim::Control::Request ();
-use Slim::Music::Info ();
 use Slim::Utils::Cache;
 use Slim::Utils::Errno;
 use Slim::Utils::Log qw(logger);
@@ -181,20 +180,11 @@ sub _clear_live_duration {
     my ($song) = @_;
     return unless $song;
 
-    # Song::duration(0) alone is insufficient: LMS treats zero as false and
-    # falls back to Slim::Music::Info::getDuration(currentTrack->url).
+    # Clear only transient song/player timing state. Live metadata itself
+    # deliberately exposes no duration, while persistent track data remains
+    # untouched.
     $song->duration(0);
     $song->startOffset(0);
-
-    my %cleared;
-    for my $method (qw(track currentTrack)) {
-        next unless $song->can($method);
-        my $track = $song->$method or next;
-        my $url = $track->can('url') ? ($track->url || '') : '';
-        next if $url && $cleared{$url}++;
-        Slim::Music::Info::setDuration($track, 0)
-            if $track->can('secs');
-    }
 
     my $client = $song->master;
     $client->remoteStreamStartTime(time())
@@ -239,11 +229,7 @@ sub scanStream {
 
     if (my $song = $args->{song}) {
         $song->handler($class);
-        unless (_is_vod_song($song)) {
-            Slim::Music::Info::setDuration($track, 0)
-                if $track->can('secs');
-            _clear_live_duration($song);
-        }
+        _clear_live_duration($song) unless _is_vod_song($song);
     }
 
     my $cb = $args->{cb} || sub {};

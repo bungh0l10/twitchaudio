@@ -227,7 +227,7 @@ sub getMetadataFor {
             if $audio_info->{sample_rate};
         $codec = join(', ', @details) if @details;
     }
-    my $type = "$codec (Twitch)";
+    my $original_type = 'AAC (Twitch)';
 
     return {
         title        => $meta->{title},
@@ -238,9 +238,9 @@ sub getMetadataFor {
         # AAC is commonly variable-bitrate. Do not expose the previous
         # segment-duration estimate as an exact technical property.
         bitrate      => undef,
-        type         => $type,
-        originalType => $type,
-        originaltype => $type,
+        type         => $codec,
+        originalType => $original_type,
+        originaltype => $original_type,
         url          => $url,
     };
 }

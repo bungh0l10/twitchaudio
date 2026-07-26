@@ -45,30 +45,81 @@ sub _payload {
     };
 }
 
-sub _psi_section {
-    my ($payload, $pusi) = @_;
-    return unless $pusi && length($payload);
+sub _drain_psi_sections {
+    my ($buffer, $sections) = @_;
 
-    my $pointer = ord(substr($payload, 0, 1));
-    $payload = substr($payload, 1 + $pointer);
-    return unless length($payload) >= 3;
+    while (length($$buffer) >= 3) {
+        if (ord(substr($$buffer, 0, 1)) == 0xff) {
+            $$buffer = '';
+            last;
+        }
 
-    my $length = ((ord(substr($payload, 1, 1)) & 0x0f) << 8)
-        | ord(substr($payload, 2, 1));
-    return if $length < 4 || $length > 4093
-        || length($payload) < 3 + $length;
+        my $length = ((ord(substr($$buffer, 1, 1)) & 0x0f) << 8)
+            | ord(substr($$buffer, 2, 1));
+        if ($length < 4 || $length > 4093) {
+            substr($$buffer, 0, 1, '');
+            next;
+        }
 
-    return substr($payload, 0, 3 + $length);
+        my $total = 3 + $length;
+        last if length($$buffer) < $total;
+        push @$sections, substr($$buffer, 0, $total, '');
+    }
+
+    return;
+}
+
+sub _psi_sections {
+    my ($ts, $pid) = @_;
+    my @sections;
+    my $buffer = '';
+    my $assembling = 0;
+    my $last_cc;
+
+    for (my $i = 0; $i + TS_PACKET_SIZE <= length($ts); $i += TS_PACKET_SIZE) {
+        my $h = _payload(substr($ts, $i, TS_PACKET_SIZE)) or next;
+        next unless $h->{pid} == $pid;
+
+        if (defined $last_cc && $h->{cc} != (($last_cc + 1) & 0x0f)) {
+            $buffer = '';
+            $assembling = 0;
+        }
+        $last_cc = $h->{cc};
+
+        my $payload = $h->{payload};
+        next unless length($payload);
+
+        if ($h->{pusi}) {
+            my $pointer = ord(substr($payload, 0, 1));
+            next if 1 + $pointer > length($payload);
+
+            if ($assembling && $pointer) {
+                $buffer .= substr($payload, 1, $pointer);
+                _drain_psi_sections(\$buffer, \@sections);
+            }
+
+            # A new section starts after the pointer field. Any incomplete
+            # previous section is malformed and must not contaminate it.
+            $buffer = substr($payload, 1 + $pointer);
+            $assembling = 1;
+        } elsif ($assembling) {
+            $buffer .= $payload;
+        } else {
+            next;
+        }
+
+        _drain_psi_sections(\$buffer, \@sections);
+        $assembling = 0 unless length($buffer);
+    }
+
+    return @sections;
 }
 
 sub _find_audio_pid {
     my ($self, $ts) = @_;
     my $pmt_pid;
 
-    for (my $i = 0; $i + TS_PACKET_SIZE <= length($ts); $i += TS_PACKET_SIZE) {
-        my $h = _payload(substr($ts, $i, TS_PACKET_SIZE)) or next;
-        next unless $h->{pid} == 0;
-        my $section = _psi_section($h->{payload}, $h->{pusi}) or next;
+    for my $section (_psi_sections($ts, 0)) {
         next unless ord(substr($section, 0, 1)) == 0;
 
         for (my $p = 8; $p + 4 <= length($section) - 4; $p += 4) {
@@ -83,10 +134,7 @@ sub _find_audio_pid {
     }
     return unless defined $pmt_pid;
 
-    for (my $i = 0; $i + TS_PACKET_SIZE <= length($ts); $i += TS_PACKET_SIZE) {
-        my $h = _payload(substr($ts, $i, TS_PACKET_SIZE)) or next;
-        next unless $h->{pid} == $pmt_pid;
-        my $section = _psi_section($h->{payload}, $h->{pusi}) or next;
+    for my $section (_psi_sections($ts, $pmt_pid)) {
         next unless ord(substr($section, 0, 1)) == 2
             && length($section) >= 16;
 

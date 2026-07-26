@@ -17,6 +17,53 @@ use constant {
     RETRY_DELAY  => 3,
 };
 
+sub _adts_frame_length {
+    my ($aac, $offset) = @_;
+    return unless defined $aac && defined $offset
+        && $offset >= 0 && $offset + 7 <= length($aac);
+
+    return unless ord(substr($aac, $offset, 1)) == 0xff
+        && (ord(substr($aac, $offset + 1, 1)) & 0xf6) == 0xf0;
+
+    my $length = ((ord(substr($aac, $offset + 3, 1)) & 3) << 11)
+        | (ord(substr($aac, $offset + 4, 1)) << 3)
+        | ((ord(substr($aac, $offset + 5, 1)) & 0xe0) >> 5);
+
+    return unless $length >= 7 && $offset + $length <= length($aac);
+    return $length;
+}
+
+sub _adts_offset_for_fraction {
+    my ($aac, $fraction) = @_;
+    return 0 unless defined $aac && length($aac);
+
+    $fraction = 0 unless defined $fraction && $fraction > 0;
+    $fraction = 1 if $fraction > 1;
+
+    my @offsets;
+    my $offset = 0;
+    while ($offset + 7 <= length($aac)) {
+        my $frame_length = _adts_frame_length($aac, $offset);
+        unless ($frame_length) {
+            my $next = index($aac, "\xff", $offset + 1);
+            return length($aac) if $next < 0;
+            $offset = $next;
+            next;
+        }
+
+        push @offsets, $offset;
+        $offset += $frame_length;
+    }
+
+    return length($aac) unless @offsets;
+
+    my $target_frame = $fraction * scalar(@offsets);
+    my $index = int($target_frame);
+    $index++ if $target_frame > $index;
+
+    return $index < @offsets ? $offsets[$index] : length($aac);
+}
+
 sub new {
     my ($class, $args) = @_;
     my $self = bless {
@@ -249,10 +296,19 @@ sub _fetch_segments {
             delete $self->{segment_request};
             delete $segment->{retry_at};
             $segment->{aac} = $self->_extract_segment($segment, $media);
-            if ($segment->{initial_fraction} && length($segment->{aac})) {
-                $segment->{offset} = int(
+            if (defined $segment->{initial_fraction}
+                && length($segment->{aac}))
+            {
+                my $target_offset = int(
                     length($segment->{aac}) * $segment->{initial_fraction}
                 );
+                $segment->{offset} = _adts_offset_for_fraction(
+                    $segment->{aac}, $segment->{initial_fraction},
+                );
+                $self->{log}->debug(sprintf(
+                    'Twitch HLS VOD ADTS seek alignment: %d -> %d bytes',
+                    $target_offset, $segment->{offset},
+                ));
                 delete $segment->{initial_fraction};
             }
             $self->_report_bitrate($segment);

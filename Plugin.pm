@@ -82,6 +82,9 @@ sub searchChannel {
         return;
     }
 
+    return _channelDoesNotExist($client, $cb)
+        unless _is_channel_login($query);
+
     return _searchChannelLogin($client, $cb, $query);
 }
 
@@ -134,12 +137,18 @@ sub _vod_id_from_search {
     my ($query) = @_;
     return unless defined $query;
 
-    return ($1, 1) if $query =~ /^twitch:vod:(\d+)$/;
+    return ($1, 1) if $query =~ /^twitch:vod:(\d{1,20})$/;
     return ($1, 1) if $query =~ m{
-        ^(?:https?://)?(?:www\.)?twitch\.tv/videos/(\d+)(?:[/?#].*)?$
+        ^(?:https?://)?(?:www\.)?twitch\.tv/videos/(\d{1,20})
+        (?:[/?#][a-z0-9_~.!\$&'()*+,;=:\@%/?#-]*)?$
     }ix;
-    return ($query, 0) if $query =~ /^\d+$/;
+    return ($query, 0) if $query =~ /^\d{1,20}$/;
     return;
+}
+
+sub _is_channel_login {
+    my ($query) = @_;
+    return defined $query && $query =~ /^[a-z0-9_]{4,25}$/ ? 1 : 0;
 }
 
 sub _vod_edges {
@@ -317,6 +326,7 @@ sub _normalize_search_query {
     my ($query) = @_;
 
     return '' unless defined $query;
+    return '' if length($query) > 2048;
 
     $query =~ s/^\s+|\s+$//g;
 

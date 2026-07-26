@@ -27,6 +27,7 @@ Slim::Player::ProtocolHandlers->registerHandler('twitchhls', __PACKAGE__);
 # releases correctly use EWOULDBLOCK for an asynchronously filled handle.
 use constant IO_SELECT_FIXED =>
     Slim::Utils::Versions->compareVersions($::VERSION, '7.9.1') >= 0;
+use constant RESUME_CACHE_INTERVAL => 3;
 
 sub isRemote         { 1 }
 sub isAudio          { 1 }
@@ -130,13 +131,22 @@ sub _resume_cache_key {
     return "twitch:resume:$client_id:vod:$id";
 }
 
-sub _store_resume_position {
+sub _set_resume_position {
     my ($song, $position) = @_;
     return unless $song && defined $position;
 
     $song->pluginData('twitchResumePosition', $position);
+    return;
+}
+
+sub _persist_resume_position {
+    my ($song, $position) = @_;
+    return unless $song && defined $position;
+
+    _set_resume_position($song, $position);
     my $key = _resume_cache_key($song) or return;
     Slim::Utils::Cache->new->set($key, $position, 3600);
+    return;
 }
 
 sub _resume_position {
@@ -152,7 +162,7 @@ sub _resume_position {
 
 sub getSeekData {
     my ($class, $client, $song, $newtime) = @_;
-    _store_resume_position($song, $newtime) if _is_vod_song($song);
+    _persist_resume_position($song, $newtime) if _is_vod_song($song);
     return { timeOffset => $newtime };
 }
 
@@ -313,7 +323,7 @@ sub close {
         my $position = ${*$self}{session}->position;
         if ($position > 0) {
             ${*$self}{resume_time} = $position;
-            _store_resume_position(${*$self}{song}, $position);
+            _persist_resume_position(${*$self}{song}, $position);
             $log->debug(sprintf(
                 'Twitch HLS VOD resume position stored: %.1f s',
                 $position,
@@ -338,7 +348,14 @@ sub sysread {
         if (${*$self}{is_vod} && length($bytes)) {
             my $position = ${*$self}{session}->position;
             ${*$self}{resume_time} = $position;
-            _store_resume_position(${*$self}{song}, $position);
+            my $song = ${*$self}{song};
+            _set_resume_position($song, $position);
+
+            my $last_write = ${*$self}{last_resume_cache_write} || 0;
+            if (time() - $last_write >= RESUME_CACHE_INTERVAL) {
+                _persist_resume_position($song, $position);
+                ${*$self}{last_resume_cache_write} = time();
+            }
         }
         $_[1] = $bytes;
         return length($bytes);

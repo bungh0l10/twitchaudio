@@ -59,6 +59,8 @@ twitch:vod:2828694549
 
 An explicit Twitch video URL or `twitch:vod:` URI is always treated as a VOD. A digits-only query is checked as a VOD ID first and falls back to a channel lookup if Twitch does not return a matching VOD.
 
+Search input is allowlist-validated before any Twitch request is made. Channel logins must contain only lower-case ASCII letters, digits or underscores and must be 4–25 characters long. VOD IDs are limited to 1–20 decimal digits. Unsupported URLs, schemes, markup and other input are rejected; the plugin never interprets search text as code, a shell command or an arbitrary request URL.
+
 Channel searching performs the following operations asynchronously:
 
 1. The query is trimmed and converted to lower case.

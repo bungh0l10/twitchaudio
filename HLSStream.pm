@@ -225,7 +225,7 @@ sub getMetadataFor {
             if defined $audio_info->{profile};
         push @details, sprintf('%g kHz', $audio_info->{sample_rate} / 1000)
             if $audio_info->{sample_rate};
-        $type = join(' \x{b7} ', @details) if @details;
+        $type = join(', ', @details) if @details;
     }
 
     return {

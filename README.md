@@ -218,7 +218,7 @@ The tracked position represents audio delivered from the plugin to LMS. It is ca
 ## Metadata and duration handling
 
 Once a segment has been extracted, the plugin exposes the exact AAC profile and
-sample rate from its ADTS header, for example `AAC-LC · 48 kHz`. It deliberately
+sample rate from its ADTS header, for example `AAC-LC, 48 kHz`. It deliberately
 does not expose a bit depth, because compressed AAC has no PCM bit-depth field,
 or a single bitrate, because Twitch AAC may be variable-bitrate.
 

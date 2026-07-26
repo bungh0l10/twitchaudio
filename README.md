@@ -228,7 +228,7 @@ Metadata includes:
 - VOD duration only;
 - measured AAC bitrate when available.
 
-Metadata is stored in LMS's cache for the configured cache lifetime and attached to the song as `wmaMeta`, which allows standard LMS metadata consumers and skins such as Material Skin to display it. Cached live metadata is applied immediately while a background request refreshes it. Successful live refreshes are limited by `live_cache_ttl`; failed refreshes may be retried after 30 seconds. VOD metadata continues to use the longer general cache lifetime.
+Metadata is stored in LMS's cache for the configured cache lifetime and attached to the song as `wmaMeta`, which allows standard LMS metadata consumers and skins such as Material Skin to display it. Cached live metadata is applied immediately while a background request refreshes it. The first successful refresh of a new live playback synchronizes title, channel login and profile image. Later refreshes update only the mutable stream title, preserving the channel artist and cover. Successful live refreshes are limited by `live_cache_ttl`; failed refreshes may be retried after 30 seconds. The live refresh interval does not expire currently displayed metadata: cached or song-attached values remain available until fresh values replace them. VOD metadata continues to use the longer general cache lifetime.
 
 Metadata resolution is URL-authoritative. The plugin first matches the requested URL to its Twitch media identity instead of blindly using `playingSong`. This prevents artwork, artist or VOD duration from leaking into another item during an asynchronous track transition.
 
@@ -259,7 +259,7 @@ The plugin initializes three LMS preferences in the `plugin.twitch` namespace:
 | --- | ---: | --- |
 | `client_id` | `kimne78kx3ncx6brgo4mv6wki5h1ko` | Client ID sent to Twitch GraphQL requests. |
 | `cache_ttl` | `3600` | Lifetime in seconds for VOD metadata and media-URL associations. |
-| `live_cache_ttl` | `300` | Lifetime and refresh interval in seconds for live-channel metadata. |
+| `live_cache_ttl` | `300` | Refresh interval in seconds for live-channel metadata; retained values use `cache_ttl`. |
 
 Invalid, empty or non-positive values fall back to their defaults. There is currently no dedicated settings page; preferences must be changed through LMS configuration mechanisms or by modifying the plugin defaults.
 

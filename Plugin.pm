@@ -316,7 +316,7 @@ sub _cache_live_metadata {
             artist => $channel->{artist},
             cover  => $channel->{cover},
         },
-        Plugins::Twitch::Config::live_cache_ttl(),
+        Plugins::Twitch::Config::cache_ttl(),
     );
 
     return;

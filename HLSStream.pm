@@ -85,7 +85,12 @@ sub _restore_cached_metadata {
     if ($type && $id) {
         $id = lc $id if $type eq 'live';
         $meta = Slim::Utils::Cache->new->get("twitch:$type:$id");
-        return {} unless ref $meta eq 'HASH';
+        unless (ref $meta eq 'HASH') {
+            my $song_matches_type = $song
+                && (($type eq 'vod' && _is_vod_song($song))
+                    || ($type eq 'live' && !_is_vod_song($song)));
+            $meta = $song->pluginData('wmaMeta') if $song_matches_type;
+        }
     } else {
         $meta = $song ? $song->pluginData('wmaMeta') : undef;
     }

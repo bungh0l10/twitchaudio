@@ -295,19 +295,33 @@ sub _applyInitialMetadata {
         return unless $data && $data->{user};
 
         my $u = $data->{user};
+        my $title = $u->{stream}->{title} // 'Offline';
+        my $current = $song->pluginData('wmaMeta');
+        my $initial_refresh = !$song->pluginData(
+            'twitchLiveMetadataInitialized'
+        );
 
-        my $meta = {
-            title  => $u->{stream}->{title} // 'Offline',
-            artist => lc($u->{login}),
-            cover  => $u->{profileImageURL},
-        };
+        my $meta;
+        if (!$initial_refresh && ref $current eq 'HASH') {
+            $meta = {
+                %$current,
+                title => $title,
+            };
+        } else {
+            $meta = {
+                title  => $title,
+                artist => lc($u->{login}),
+                cover  => $u->{profileImageURL},
+            };
+            $song->pluginData('twitchLiveMetadataInitialized', 1);
+        }
 
         _apply_song_metadata($client, $song, $meta);
 
         $cache->set(
             "twitch:live:$channel",
             $meta,
-            Plugins::Twitch::Config::live_cache_ttl(),
+            Plugins::Twitch::Config::cache_ttl(),
         );
     });
 

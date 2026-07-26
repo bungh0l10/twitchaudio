@@ -10,7 +10,7 @@ The plugin does not pass Twitch's HLS media containers directly to the player. I
 - Play the channel's current live audio-only stream.
 - Browse up to 100 highlights and archived broadcasts for a channel.
 - Play and seek within Twitch VODs.
-- Display the Twitch channel or VOD title, broadcaster name, artwork and measured audio bitrate.
+- Display the Twitch channel or VOD title, broadcaster name, artwork and exact AAC profile and sample rate.
 - Preserve VOD duration and playback position across LMS stream recreation and player standby.
 - Restore title, artist and artwork after standby.
 - Process both MPEG-TS (`.ts`) and fragmented MP4 (`.mp4`) HLS media segments.
@@ -151,7 +151,7 @@ An `EVENT` playlist with a known Twitch total duration is considered seekable. I
 - prefetches up to three extracted audio segments;
 - downloads fragmented MP4 initialization segments when `EXT-X-MAP` changes;
 - retries playlist, initialization and media-segment failures after three seconds;
-- calculates an approximate bitrate from extracted AAC bytes and segment duration;
+- reads the exact AAC profile and sample rate from the first ADTS frame;
 - supplies data through non-blocking reads to the LMS protocol adapter.
 
 Playlist and segment HTTP requests use a twenty-second timeout. While a request is pending and no audio is available, the adapter reports `EWOULDBLOCK` on LMS versions with the corrected asynchronous I/O behavior and `EINTR` on older versions.
@@ -217,7 +217,10 @@ The tracked position represents audio delivered from the plugin to LMS. It is ca
 
 ## Metadata and duration handling
 
-The plugin exposes the media type as `AAC (Twitch)`. Once a segment has been extracted, its approximate bitrate is reported in kilobits per second.
+Once a segment has been extracted, the plugin exposes the exact AAC profile and
+sample rate from its ADTS header, for example `AAC-LC · 48 kHz`. It deliberately
+does not expose a bit depth, because compressed AAC has no PCM bit-depth field,
+or a single bitrate, because Twitch AAC may be variable-bitrate.
 
 Metadata includes:
 
@@ -226,7 +229,7 @@ Metadata includes:
 - channel profile image for live streams;
 - VOD thumbnail for archived content;
 - VOD duration only;
-- measured AAC bitrate when available.
+- AAC profile and sample rate read from the media stream.
 
 Metadata is stored in LMS's cache for the configured cache lifetime and attached to the song as `wmaMeta`, which allows standard LMS metadata consumers and skins such as Material Skin to display it. Cached live metadata is applied immediately while a background request refreshes it. The first successful refresh of a new live playback synchronizes title, channel login and profile image. Later refreshes update only the mutable stream title, preserving the channel artist and cover. Successful live refreshes are limited by `live_cache_ttl`; failed refreshes may be retried after 30 seconds. The live refresh interval does not expire currently displayed metadata: cached or song-attached values remain available until fresh values replace them. VOD metadata continues to use the longer general cache lifetime.
 

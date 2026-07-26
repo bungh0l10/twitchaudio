@@ -215,10 +215,18 @@ sub getMetadataFor {
     my $meta = _restore_cached_metadata($song, $url);
     my ($url_type) = _twitch_media_id(undef, $url);
     my $is_vod = $url_type ? $url_type eq 'vod' : _is_vod_song($song);
-    my $bitrate = $song && $song->bitrate
-        ? sprintf('%dkbps', int(($song->bitrate + 500) / 1000))
+    my $audio_info = $song
+        ? $song->pluginData('twitchAudioInfo')
         : undef;
-    my $type = 'AAC (Twitch)';
+    my $type = 'AAC';
+    if (ref $audio_info eq 'HASH') {
+        my @details;
+        push @details, $audio_info->{profile}
+            if defined $audio_info->{profile};
+        push @details, sprintf('%g kHz', $audio_info->{sample_rate} / 1000)
+            if $audio_info->{sample_rate};
+        $type = join(' \x{b7} ', @details) if @details;
+    }
 
     return {
         title        => $meta->{title},
@@ -226,7 +234,9 @@ sub getMetadataFor {
         cover        => $meta->{cover},
         icon         => $meta->{cover},
         duration     => $is_vod && $song ? ($song->duration || undef) : undef,
-        bitrate      => $bitrate,
+        # AAC is commonly variable-bitrate. Do not expose the previous
+        # segment-duration estimate as an exact technical property.
+        bitrate      => undef,
         type         => $type,
         originalType => $type,
         originaltype => $type,
@@ -307,10 +317,10 @@ sub _start_session {
             $song->duration($duration);
             _notify_metadata($song);
         },
-        on_bitrate => sub {
-            my ($bitrate) = @_;
-            return unless $song && $bitrate && !$song->bitrate;
-            $song->bitrate($bitrate);
+        on_audio_info => sub {
+            my ($audio_info) = @_;
+            return unless $song && ref $audio_info eq 'HASH';
+            $song->pluginData('twitchAudioInfo', $audio_info);
             _notify_metadata($song);
         },
         on_seek => sub {

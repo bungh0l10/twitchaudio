@@ -73,7 +73,7 @@ sub new {
         seek_time     => $args->{seek_time},
         log           => $args->{log},
         on_duration   => $args->{on_duration} || sub {},
-        on_bitrate    => $args->{on_bitrate} || sub {},
+        on_audio_info => $args->{on_audio_info} || sub {},
         on_seek       => $args->{on_seek} || sub {},
         segments      => [],
         seen          => {},
@@ -320,7 +320,7 @@ sub _fetch_segments {
                 ));
                 delete $segment->{initial_fraction};
             }
-            $self->_report_bitrate($segment);
+            $self->_report_audio_info($segment->{aac});
             $self->{log}->debug(sprintf(
                 'Twitch HLS %s segment: %d bytes, %d ADTS bytes',
                 uc($segment->{container} || 'mpeg-ts'),
@@ -359,13 +359,38 @@ sub _extract_segment {
     return $self->{ts_extractor}->extract($media);
 }
 
-sub _report_bitrate {
-    my ($self, $segment) = @_;
-    return unless $segment->{duration} && length($segment->{aac});
+sub _report_audio_info {
+    my ($self, $aac) = @_;
+    return if $self->{audio_info_reported}
+        || !defined $aac || length($aac) < 7;
 
-    my $bitrate = length($segment->{aac}) * 8 / $segment->{duration};
-    $bitrate = int(($bitrate + 4_000) / 8_000) * 8_000;
-    $self->{on_bitrate}->($bitrate);
+    my $offset = 0;
+    while ($offset + 7 <= length($aac)) {
+        if (ord(substr($aac, $offset, 1)) == 0xff
+            && (ord(substr($aac, $offset + 1, 1)) & 0xf6) == 0xf0)
+        {
+            my @sample_rates = (
+                96_000, 88_200, 64_000, 48_000, 44_100, 32_000, 24_000,
+                22_050, 16_000, 12_000, 11_025, 8_000, 7_350,
+            );
+            my @profiles = ('AAC Main', 'AAC-LC', 'AAC-SSR', 'AAC-LTP');
+            my $byte2 = ord(substr($aac, $offset + 2, 1));
+            my $byte3 = ord(substr($aac, $offset + 3, 1));
+            my $profile_index = ($byte2 >> 6) & 3;
+            my $rate_index = ($byte2 >> 2) & 0x0f;
+            my $channels = (($byte2 & 1) << 2) | (($byte3 >> 6) & 3);
+            return if $rate_index >= @sample_rates;
+
+            $self->{audio_info_reported} = 1;
+            $self->{on_audio_info}->({
+                profile     => $profiles[$profile_index],
+                sample_rate => $sample_rates[$rate_index],
+                channels    => $channels,
+            });
+            return;
+        }
+        $offset++;
+    }
 }
 
 sub read {

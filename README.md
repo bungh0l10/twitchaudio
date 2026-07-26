@@ -6,7 +6,7 @@ The plugin does not pass Twitch's HLS media containers directly to the player. I
 
 ## Features
 
-- Search for a Twitch channel by its login name.
+- Search for a Twitch channel by login name or open a VOD directly by ID or URL.
 - Play the channel's current live audio-only stream.
 - Browse up to 100 highlights and archived broadcasts for a channel.
 - Play and seek within Twitch VODs.
@@ -46,9 +46,20 @@ Restart LMS after installation.
 
 ## User interface
 
-The plugin registers an OPML-based application named **Twitch** in the LMS radio menu. Its root contains a channel search action.
+The plugin registers an OPML-based application named **Twitch** in the LMS radio menu. Its root contains a combined channel and VOD search action.
 
-Searching performs the following operations asynchronously:
+The search accepts channel login names and the following direct VOD formats:
+
+```text
+2828694549
+https://www.twitch.tv/videos/2828694549
+https://twitch.tv/videos/2828694549
+twitch:vod:2828694549
+```
+
+An explicit Twitch video URL or `twitch:vod:` URI is always treated as a VOD. A digits-only query is checked as a VOD ID first and falls back to a channel lookup if Twitch does not return a matching VOD.
+
+Channel searching performs the following operations asynchronously:
 
 1. The query is trimmed and converted to lower case.
 2. Twitch is queried for the matching channel.

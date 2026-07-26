@@ -62,6 +62,32 @@ sub searchChannel {
     return _channelDoesNotExist($client, $cb)
         unless $query;
 
+    my ($vod_id, $is_explicit_vod) = _vod_id_from_search($query);
+    if ($vod_id) {
+        Plugins::Twitch::API::getVodMeta($vod_id, sub {
+            my ($vod) = @_;
+
+            if ($vod) {
+                return $cb->({
+                    items => [_buildVodMetaUiItem($vod)],
+                });
+            }
+
+            return _vodDoesNotExist($client, $cb)
+                if $is_explicit_vod;
+
+            return _searchChannelLogin($client, $cb, $query);
+        });
+
+        return;
+    }
+
+    return _searchChannelLogin($client, $cb, $query);
+}
+
+sub _searchChannelLogin {
+    my ($client, $cb, $query) = @_;
+
     Plugins::Twitch::API::getChannel($query, sub {
         my ($data) = @_;
 
@@ -101,6 +127,18 @@ sub searchChannel {
         return;
     });
 
+    return;
+}
+
+sub _vod_id_from_search {
+    my ($query) = @_;
+    return unless defined $query;
+
+    return ($1, 1) if $query =~ /^twitch:vod:(\d+)$/;
+    return ($1, 1) if $query =~ m{
+        ^(?:https?://)?(?:www\.)?twitch\.tv/videos/(\d+)(?:[/?#].*)?$
+    }ix;
+    return ($query, 0) if $query =~ /^\d+$/;
     return;
 }
 
@@ -177,6 +215,19 @@ sub _buildVodUiItem {
     };
 }
 
+sub _buildVodMetaUiItem {
+    my ($vod) = @_;
+
+    return _buildVodUiItem({
+        node => {
+            id            => $vod->{id},
+            title         => $vod->{title},
+            lengthSeconds => $vod->{duration},
+            thumbnailURLs => [$vod->{thumbnail}],
+        },
+    });
+}
+
 sub _buildMainMenu {
     my ($client) = @_;
 
@@ -193,6 +244,19 @@ sub _channelDoesNotExist {
     $cb->({
         items => [{
             name => cstring($client, 'PLUGIN_TWITCH_CHANNEL_DOES_NOT_EXIST'),
+            type => 'link',
+        }],
+    });
+
+    return;
+}
+
+sub _vodDoesNotExist {
+    my ($client, $cb) = @_;
+
+    $cb->({
+        items => [{
+            name => cstring($client, 'PLUGIN_TWITCH_VOD_DOES_NOT_EXIST'),
             type => 'link',
         }],
     });

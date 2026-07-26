@@ -6,6 +6,7 @@ use bytes;
 
 use Slim::Networking::SimpleAsyncHTTP;
 use Time::HiRes qw(time);
+use URI;
 
 use Plugins::Twitch::HLS::Playlist ();
 use Plugins::Twitch::HLS::Extractor::MPEGTSAAC ();
@@ -115,6 +116,14 @@ sub _reset_extractors {
 sub _request {
     my ($self, $url, $success, $failure) = @_;
     return if $self->{closed};
+
+    my $uri = URI->new($url || '');
+    unless (lc($uri->scheme || '') eq 'https'
+        && defined $uri->host && length($uri->host))
+    {
+        $failure->('refusing non-HTTPS or invalid HLS URL');
+        return;
+    }
 
     my $http = Slim::Networking::SimpleAsyncHTTP->new(
         sub {

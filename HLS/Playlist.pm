@@ -5,9 +5,20 @@ use warnings;
 
 use URI;
 
+sub _https_url {
+    my ($reference, $base_url) = @_;
+    return unless defined $reference && length($reference);
+
+    my $uri = URI->new_abs($reference, $base_url);
+    return unless lc($uri->scheme || '') eq 'https';
+    return unless defined $uri->host && length($uri->host);
+    return $uri->as_string;
+}
+
 sub parse {
     my ($class, $body, $base_url) = @_;
     return unless defined $body && $body =~ /#EXTM3U/;
+    return unless _https_url($base_url, $base_url);
 
     my ($sequence) = $body =~ /#EXT-X-MEDIA-SEQUENCE:(\d+)/;
     $sequence //= 0;
@@ -32,7 +43,8 @@ sub parse {
             next;
         }
         if ($line =~ /^#EXT-X-MAP:.*\bURI="([^"]+)"/) {
-            $init_url = URI->new_abs($1, $base_url)->as_string;
+            $init_url = _https_url($1, $base_url);
+            return unless $init_url;
             next;
         }
         if ($line =~ /^#EXTINF:([\d.]+)/) {
@@ -41,7 +53,8 @@ sub parse {
         }
         next if $line =~ /^#/ || $line !~ /\S/;
 
-        my $url = URI->new_abs($line, $base_url)->as_string;
+        my $url = _https_url($line, $base_url);
+        return unless $url;
         push @segments, {
             sequence      => $sequence + $index++,
             url           => $url,

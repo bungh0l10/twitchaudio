@@ -13,9 +13,11 @@ use Plugins::Twitch::HLS::Extractor::MPEGTSAAC ();
 use Plugins::Twitch::HLS::Extractor::MP4AAC ();
 
 use constant {
-    HTTP_TIMEOUT       => 20,
-    PREFETCH           => 3,
-    RETRY_DELAY        => 3,
+    HTTP_TIMEOUT        => 20,
+    MAX_CONCURRENT_REQUESTS => 3,
+    LIVE_BUFFER_SECONDS => 8,
+    VOD_BUFFER_SECONDS  => 30,
+    RETRY_DELAY         => 3,
     SEEN_HISTORY_MARGIN => 10,
 };
 
@@ -77,7 +79,10 @@ sub new {
         on_audio_info => $args->{on_audio_info} || sub {},
         on_seek       => $args->{on_seek} || sub {},
         segments      => [],
-        seen          => {},
+        # Live and reloadable EVENT playlists allocate this lazily for
+        # deduplication. A complete VOD is consumed from one immutable
+        # playlist and does not need a second hash containing every segment.
+        seen          => $args->{is_vod} ? undef : {},
         epoch         => 0,
         started       => 0,
         next_playlist => 0,
@@ -208,6 +213,9 @@ sub _fetch_playlist {
 sub _apply_playlist {
     my ($self, $playlist) = @_;
     my $sequence = $playlist->media_sequence;
+    my $complete_vod = $self->{is_vod}
+        && !$self->{started}
+        && $playlist->is_complete;
 
     if (defined $self->{last_sequence} && $sequence < $self->{last_sequence}) {
         $self->{epoch}++;
@@ -220,6 +228,12 @@ sub _apply_playlist {
 
     my @new;
     for my $segment (@{ $playlist->segments }) {
+        if ($complete_vod) {
+            push @new, { %$segment };
+            next;
+        }
+
+        $self->{seen} ||= {};
         my $id = join(':', $self->{epoch}, $segment->{sequence});
         next if $self->{seen}{$id};
         $self->{seen}{$id} = 1;
@@ -313,9 +327,10 @@ sub _process_downloaded_segments {
     my ($self) = @_;
     return if $self->{closed};
 
-    my $buffered = scalar grep { defined $_->{aac} }
-        @{ $self->{segments} };
-    return if $buffered >= PREFETCH;
+    my $target = $self->{is_vod}
+        ? VOD_BUFFER_SECONDS
+        : LIVE_BUFFER_SECONDS;
+    return if $self->_buffered_seconds >= $target;
 
     for my $segment (@{ $self->{segments} }) {
         next if defined $segment->{aac};
@@ -325,7 +340,6 @@ sub _process_downloaded_segments {
                 'Audio for this section has been muted by Twitch because it contains copyrighted content.'
             );
             $segment->{aac} = '';
-            last if ++$buffered >= PREFETCH;
             next;
         }
 
@@ -365,10 +379,40 @@ sub _process_downloaded_segments {
             uc($segment->{container} || 'mpeg-ts'),
             length($media), length($segment->{aac}),
         ));
-        last if ++$buffered >= PREFETCH;
+        last if $self->_buffered_seconds >= $target;
     }
 
     return;
+}
+
+sub _segment_buffer_seconds {
+    my ($segment) = @_;
+    return 0 if $segment->{muted};
+    my $duration = $segment->{duration} || 0;
+    return 0 unless $duration > 0;
+
+    if (defined $segment->{aac}) {
+        my $length = length($segment->{aac});
+        return 0 unless $length;
+        my $offset = $segment->{offset} || 0;
+        return $duration * (1 - $offset / $length)
+            if $offset > 0 && $offset < $length;
+        return 0 if $offset >= $length;
+    }
+
+    return $duration;
+}
+
+sub _buffered_seconds {
+    my ($self) = @_;
+    my $seconds = 0;
+
+    for my $segment (@{ $self->{segments} }) {
+        last unless defined $segment->{aac};
+        $seconds += _segment_buffer_seconds($segment);
+    }
+
+    return $seconds;
 }
 
 sub _fetch_segments {
@@ -377,22 +421,33 @@ sub _fetch_segments {
 
     $self->_process_downloaded_segments;
 
-    my $prefetched = 0;
+    my $target = $self->{is_vod}
+        ? VOD_BUFFER_SECONDS
+        : LIVE_BUFFER_SECONDS;
+    my $window_seconds = 0;
+    my $active_requests = scalar grep { $_->{request} }
+        @{ $self->{segments} };
+
     for my $segment (@{ $self->{segments} }) {
+        last if $window_seconds >= $target;
+
+        my $duration = _segment_buffer_seconds($segment);
         if (defined $segment->{aac}
             || defined $segment->{media}
             || $segment->{request}
             || $segment->{muted})
         {
-            last if ++$prefetched >= PREFETCH;
+            $window_seconds += $duration;
             next;
         }
 
-        last if $prefetched >= PREFETCH;
         if ($segment->{retry_at} && time() < $segment->{retry_at}) {
-            $prefetched++;
+            $window_seconds += $duration;
             next;
         }
+
+        $window_seconds += $duration;
+        next if $active_requests >= MAX_CONCURRENT_REQUESTS;
 
         $segment->{request} = $self->_request($segment->{url}, sub {
             my ($media) = @_;
@@ -406,7 +461,7 @@ sub _fetch_segments {
             $segment->{retry_at} = time() + RETRY_DELAY;
             $self->{log}->error("Twitch HLS segment request failed: $error");
         });
-        $prefetched++ if $segment->{request};
+        $active_requests++ if $segment->{request};
     }
 
     return;

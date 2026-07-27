@@ -92,7 +92,8 @@ sub new {
 sub close {
     my ($self) = @_;
     $self->{closed} = 1;
-    delete @$self{qw(playlist_request init_request segment_request)};
+    delete @$self{qw(playlist_request init_request)};
+    delete $_->{request} for @{ $self->{segments} };
     return;
 }
 
@@ -308,11 +309,9 @@ sub _fetch_init {
     });
 }
 
-sub _fetch_segments {
+sub _process_downloaded_segments {
     my ($self) = @_;
-    return if $self->{closed}
-        || $self->{segment_request}
-        || $self->{init_request};
+    return if $self->{closed};
 
     my $buffered = scalar grep { defined $_->{aac} }
         @{ $self->{segments} };
@@ -320,18 +319,20 @@ sub _fetch_segments {
 
     for my $segment (@{ $self->{segments} }) {
         next if defined $segment->{aac};
-        return if $segment->{retry_at} && time() < $segment->{retry_at};
-
-        $self->_apply_segment_discontinuity($segment);
 
         if ($segment->{muted}) {
             $self->{log}->info(
                 'Audio for this section has been muted by Twitch because it contains copyrighted content.'
             );
             $segment->{aac} = '';
-            $self->_fetch_segments;
-            return;
+            last if ++$buffered >= PREFETCH;
+            next;
         }
+
+        # Downloads may finish out of order, but extraction is stateful and
+        # must cross discontinuities and initialization changes in order.
+        return unless defined $segment->{media};
+        $self->_apply_segment_discontinuity($segment);
 
         if ($segment->{init_url}
             && (!$self->{current_init_url}
@@ -341,41 +342,79 @@ sub _fetch_segments {
             return;
         }
 
-        $self->{segment_request} = $self->_request($segment->{url}, sub {
-            my ($media) = @_;
-            delete $self->{segment_request};
-            delete $segment->{retry_at};
-            $segment->{aac} = $self->_extract_segment($segment, $media);
-            if (defined $segment->{initial_fraction}
-                && length($segment->{aac}))
-            {
-                my $target_offset = int(
-                    length($segment->{aac}) * $segment->{initial_fraction}
-                );
-                $segment->{offset} = _adts_offset_for_fraction(
-                    $segment->{aac}, $segment->{initial_fraction},
-                );
-                $self->{log}->debug(sprintf(
-                    'Twitch HLS VOD ADTS seek alignment: %d -> %d bytes',
-                    $target_offset, $segment->{offset},
-                ));
-                delete $segment->{initial_fraction};
-            }
-            $self->_report_audio_info($segment->{aac});
+        my $media = delete $segment->{media};
+        $segment->{aac} = $self->_extract_segment($segment, $media);
+        if (defined $segment->{initial_fraction}
+            && length($segment->{aac}))
+        {
+            my $target_offset = int(
+                length($segment->{aac}) * $segment->{initial_fraction}
+            );
+            $segment->{offset} = _adts_offset_for_fraction(
+                $segment->{aac}, $segment->{initial_fraction},
+            );
             $self->{log}->debug(sprintf(
-                'Twitch HLS %s segment: %d bytes, %d ADTS bytes',
-                uc($segment->{container} || 'mpeg-ts'),
-                length($media || ''), length($segment->{aac}),
+                'Twitch HLS VOD ADTS seek alignment: %d -> %d bytes',
+                $target_offset, $segment->{offset},
             ));
+            delete $segment->{initial_fraction};
+        }
+        $self->_report_audio_info($segment->{aac});
+        $self->{log}->debug(sprintf(
+            'Twitch HLS %s segment: %d bytes, %d ADTS bytes',
+            uc($segment->{container} || 'mpeg-ts'),
+            length($media), length($segment->{aac}),
+        ));
+        last if ++$buffered >= PREFETCH;
+    }
+
+    return;
+}
+
+sub _fetch_segments {
+    my ($self) = @_;
+    return if $self->{closed};
+
+    $self->_process_downloaded_segments;
+
+    my $prefetched = 0;
+    for my $segment (@{ $self->{segments} }) {
+        if (defined $segment->{aac}
+            || defined $segment->{media}
+            || $segment->{request}
+            || $segment->{muted})
+        {
+            last if ++$prefetched >= PREFETCH;
+            next;
+        }
+
+        last if $prefetched >= PREFETCH;
+        if ($segment->{retry_at} && time() < $segment->{retry_at}) {
+            $prefetched++;
+            next;
+        }
+
+        $segment->{request} = $self->_request($segment->{url}, sub {
+            my ($media) = @_;
+            delete $segment->{request};
+            delete $segment->{retry_at};
+            $segment->{media} = $media;
             $self->_fetch_segments;
         }, sub {
             my ($error) = @_;
-            delete $self->{segment_request};
+            delete $segment->{request};
             $segment->{retry_at} = time() + RETRY_DELAY;
             $self->{log}->error("Twitch HLS segment request failed: $error");
         });
-        return;
+        $prefetched++ if $segment->{request};
     }
+
+    return;
+}
+
+sub _has_segment_requests {
+    my ($self) = @_;
+    return scalar grep { $_->{request} } @{ $self->{segments} };
 }
 
 sub _extract_segment {
@@ -472,7 +511,7 @@ sub read {
     return ''
         if $self->{complete}
             && !@{ $self->{segments} }
-            && !$self->{segment_request}
+            && !$self->_has_segment_requests
             && !$self->{init_request};
 
     return undef;

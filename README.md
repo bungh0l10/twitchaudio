@@ -88,7 +88,8 @@ Playback is divided into four layers so Twitch API access, LMS protocol integrat
 LMS UI item
   -> twitch:live:<login> or twitch:vod:<id>
   -> Twitch GraphQL playback token
-  -> Twitch Usher audio_only media playlist
+  -> Twitch Usher master playlist
+  -> audio_only media playlist
   -> internal twitchhls: URL
   -> HLS playlist/session coordinator
   -> MPEG-TS or fragmented MP4 AAC extraction
@@ -107,13 +108,11 @@ The API layer provides:
 - live playback access tokens;
 - VOD playback access tokens;
 - VOD title, owner, duration and thumbnail metadata;
-- construction of the signed `audio_only` Twitch Usher media-playlist URL.
+- selection of the `audio_only` variant from the Twitch master playlist.
 
 Live playback tokens are requested through `streamPlaybackAccessToken`. VOD playback uses Twitch's persisted `PlaybackAccessToken` GraphQL query. JSON boolean variables are encoded as actual JSON booleans rather than numeric values.
 
-The returned access token and signature are passed to Twitch Usher with
-`allow_audio_only` enabled. The resulting signed media-playlist URL is handed
-directly to the LMS streaming layer, which performs the playlist request.
+The returned access token and signature are passed to Twitch Usher. The resulting master playlist is scanned for an `audio_only` variant, and only that media playlist is handed to the LMS streaming layer.
 
 ### LMS protocol adaptation
 
@@ -309,7 +308,7 @@ Resolved Twitch HLS URLs contain temporary playback credentials and are logged o
 At runtime the plugin communicates with:
 
 - `https://gql.twitch.tv/gql` for channel, VOD and playback-token data;
-- `https://usher.ttvnw.net/` for Twitch live and VOD HLS media playlists;
+- `https://usher.ttvnw.net/` for Twitch live and VOD HLS master playlists;
 - Twitch CDN URLs referenced by the selected audio-only media playlist.
 
 All requests are asynchronous. The plugin does not operate a proxy service and does not send credentials to any server other than the Twitch endpoints contained in the playback flow.
@@ -317,7 +316,7 @@ All requests are asynchronous. The plugin does not operate a proxy service and d
 ## Limitations and compatibility notes
 
 - Twitch's GraphQL schema, persisted query hashes, playback-token flow and HLS conventions are not a stable public plugin API. Twitch can change them without notice.
-- Only the requested `audio_only` rendition is processed. The plugin does not download or transcode video.
+- Only the `audio_only` rendition is selected. The plugin does not download or transcode video.
 - Output is always presented to LMS as AAC. No codec transcoding is performed.
 - MPEG-TS support expects an AAC elementary stream declared as stream type `0x0f`.
 - Fragmented MP4 support requires an `EXT-X-MAP` initialization segment and a supported AAC configuration in `esds`.

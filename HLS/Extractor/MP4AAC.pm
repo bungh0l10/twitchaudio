@@ -223,7 +223,9 @@ sub _tfhd {
 }
 
 sub _trun {
-    my ($self, $data, $box, $tfhd, $cursor) = @_;
+    my ($self, $data, $box, $tfhd, $cursor, $mdat) = @_;
+    return unless $mdat && $mdat->{type} eq 'mdat';
+
     my $pos = $box->{payload_start};
     return if $pos + 8 > $box->{end};
     my $version_flags = _u32($data, $pos);
@@ -239,25 +241,54 @@ sub _trun {
         $data_pos = $tfhd->{base} + $offset;
         $pos += 4;
     }
-    $pos += 4 if $flags & 0x000004;
+    return unless defined $data_pos
+        && $data_pos >= $mdat->{payload_start}
+        && $data_pos <= $mdat->{end};
+    if ($flags & 0x000004) {
+        return if $pos + 4 > $box->{end};
+        $pos += 4;
+    }
 
     my @samples;
     for (1 .. $count) {
+        my $fields = 0;
+        $fields++ if $flags & 0x000100;
+        $fields++ if $flags & 0x000200;
+        $fields++ if $flags & 0x000400;
+        $fields++ if $flags & 0x000800;
+        return if $pos + $fields * 4 > $box->{end};
+
         $pos += 4 if $flags & 0x000100;
         my $size = $tfhd->{default_size};
         if ($flags & 0x000200) {
-            return if $pos + 4 > $box->{end};
             $size = _u32($data, $pos);
             $pos += 4;
         }
         $pos += 4 if $flags & 0x000400;
         $pos += 4 if $flags & 0x000800;
-        return unless $size && $data_pos + $size <= length($data);
+        return unless $size
+            && $data_pos >= $mdat->{payload_start}
+            && $data_pos <= $mdat->{end}
+            && $size <= $mdat->{end} - $data_pos;
         push @samples, [$data_pos, $size];
         $data_pos += $size;
     }
 
     return (\@samples, $data_pos);
+}
+
+sub _mdat_for_moof {
+    my ($boxes, $moof_index) = @_;
+    my @mdat;
+    return if $moof_index >= $#$boxes;
+
+    for my $index ($moof_index + 1 .. $#$boxes) {
+        my $box = $boxes->[$index];
+        last if $box->{type} eq 'moof';
+        push @mdat, $box if $box->{type} eq 'mdat';
+    }
+
+    return @mdat == 1 ? $mdat[0] : undef;
 }
 
 sub _adts_header {
@@ -285,11 +316,19 @@ sub extract {
 
     my @top = _boxes($data);
     my $out = '';
-    for my $moof (grep { $_->{type} eq 'moof' } @top) {
-        my ($mdat) = grep {
-            $_->{type} eq 'mdat' && $_->{start} >= $moof->{end}
-        } @top;
-        my $cursor = $mdat ? $mdat->{payload_start} : undef;
+    for my $index (0 .. $#top) {
+        my $moof = $top[$index];
+        next unless $moof->{type} eq 'moof';
+
+        my $mdat = _mdat_for_moof(\@top, $index);
+        unless ($mdat) {
+            $self->{log}->error(
+                'Twitch HLS: MP4 fragment has no unambiguous associated mdat'
+            ) if $self->{log};
+            next;
+        }
+
+        my $cursor = $mdat->{payload_start};
         for my $traf (_children($data, $moof)) {
             next unless $traf->{type} eq 'traf';
             my $tfhd_box = _child($data, $traf, 'tfhd') or next;
@@ -299,7 +338,7 @@ sub extract {
             for my $trun (_children($data, $traf)) {
                 next unless $trun->{type} eq 'trun';
                 my ($samples, $next) = $self->_trun(
-                    $data, $trun, $tfhd, $cursor,
+                    $data, $trun, $tfhd, $cursor, $mdat,
                 );
                 next unless $samples;
                 $cursor = $next;

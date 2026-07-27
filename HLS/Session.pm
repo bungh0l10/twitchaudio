@@ -13,9 +13,10 @@ use Plugins::Twitch::HLS::Extractor::MPEGTSAAC ();
 use Plugins::Twitch::HLS::Extractor::MP4AAC ();
 
 use constant {
-    HTTP_TIMEOUT => 20,
-    PREFETCH     => 3,
-    RETRY_DELAY  => 3,
+    HTTP_TIMEOUT       => 20,
+    PREFETCH           => 3,
+    RETRY_DELAY        => 3,
+    SEEN_HISTORY_MARGIN => 10,
 };
 
 sub _adts_frame_length {
@@ -113,6 +114,30 @@ sub _reset_extractors {
     delete $self->{current_init_url};
 }
 
+sub _prune_live_seen {
+    my ($self, $window_sequence) = @_;
+    return if $self->{is_vod} || !defined $window_sequence;
+
+    my $keep_from = $window_sequence > SEEN_HISTORY_MARGIN
+        ? $window_sequence - SEEN_HISTORY_MARGIN
+        : 0;
+    my $removed = 0;
+
+    for my $id (keys %{ $self->{seen} }) {
+        my ($epoch, $sequence) = $id =~ /^(\d+):(\d+)$/;
+        next if defined $epoch
+            && $epoch == $self->{epoch}
+            && $sequence >= $keep_from;
+        delete $self->{seen}{$id};
+        $removed++;
+    }
+
+    $self->{log}->debug(sprintf(
+        'Twitch HLS pruned %d old live segment ID(s)', $removed,
+    )) if $removed;
+    return;
+}
+
 sub _request {
     my ($self, $url, $success, $failure) = @_;
     return if $self->{closed};
@@ -177,6 +202,7 @@ sub _apply_playlist {
         $self->{log}->debug('Twitch HLS playlist sequence restarted');
     }
     $self->{last_sequence} = $sequence;
+    $self->_prune_live_seen($sequence);
 
     my @new;
     for my $segment (@{ $playlist->segments }) {

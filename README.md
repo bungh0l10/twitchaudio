@@ -146,6 +146,7 @@ An `EVENT` playlist with a known Twitch total duration is considered seekable. I
 
 - reloads media playlists shortly before their target duration expires;
 - deduplicates segments by playlist epoch and media sequence;
+- bounds live-stream deduplication history to the current playlist window plus ten preceding media sequences;
 - detects a media-sequence restart and resets extractor state;
 - starts a live stream near the live edge by retaining only the final three initially visible segments;
 - prefetches up to three extracted audio segments;

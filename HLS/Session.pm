@@ -138,6 +138,19 @@ sub _prune_live_seen {
     return;
 }
 
+sub _apply_segment_discontinuity {
+    my ($self, $segment) = @_;
+    return unless $segment->{discontinuity}
+        && !$segment->{discontinuity_applied};
+
+    $self->_reset_extractors;
+    $segment->{discontinuity_applied} = 1;
+    $self->{log}->debug(
+        'Twitch HLS discontinuity: reset container extraction state'
+    );
+    return 1;
+}
+
 sub _request {
     my ($self, $url, $success, $failure) = @_;
     return if $self->{closed};
@@ -308,6 +321,8 @@ sub _fetch_segments {
     for my $segment (@{ $self->{segments} }) {
         next if defined $segment->{aac};
         return if $segment->{retry_at} && time() < $segment->{retry_at};
+
+        $self->_apply_segment_discontinuity($segment);
 
         if ($segment->{muted}) {
             $self->{log}->info(

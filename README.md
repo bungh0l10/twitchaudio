@@ -148,6 +148,7 @@ An `EVENT` playlist with a known Twitch total duration is considered seekable. I
 - deduplicates segments by playlist epoch and media sequence;
 - bounds live-stream deduplication history to the current playlist window plus ten preceding media sequences;
 - detects a media-sequence restart and resets extractor state;
+- resets MPEG-TS and fragmented MP4 extraction state at HLS discontinuities and reloads MP4 initialization data;
 - starts a live stream near the live edge by retaining only the final three initially visible segments;
 - prefetches up to three extracted audio segments;
 - downloads fragmented MP4 initialization segments when `EXT-X-MAP` changes;

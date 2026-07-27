@@ -15,11 +15,6 @@ sub _https_url {
     return $uri->as_string;
 }
 
-sub resolve_https_url {
-    my ($class, $reference, $base_url) = @_;
-    return _https_url($reference, $base_url);
-}
-
 sub parse {
     my ($class, $body, $base_url) = @_;
     return unless defined $body && $body =~ /#EXTM3U/;

@@ -10,7 +10,6 @@ use Slim::Networking::SimpleAsyncHTTP;
 use Slim::Utils::Log qw(logger);
 
 use Plugins::Twitch::Config ();
-use Plugins::Twitch::HLS::Playlist ();
 
 use constant {
     HTTP_TIMEOUT => 10,
@@ -126,94 +125,25 @@ sub _get_audio_playlist {
 
     _request('GET', $url, {}, undef, sub {
         my ($content) = @_;
-        return $callback->(_extract_audio_m3u8($content, $url));
+        return $callback->(_extract_audio_m3u8($content));
     });
 
     return;
 }
 
-sub _hls_attributes {
-    my ($text) = @_;
-    return unless defined $text;
-
-    my %attributes;
-    pos($text) = 0;
-    while (pos($text) < length($text)) {
-        return unless $text =~ /\G\s*([A-Z0-9-]+)\s*=\s*/igc;
-        my $name = uc $1;
-        my $value;
-
-        if (substr($text, pos($text), 1) eq '"') {
-            return unless $text =~ /\G"((?:[^"\\]|\\.)*)"\s*/gc;
-            $value = $1;
-            $value =~ s/\\(.)/$1/g;
-        } else {
-            return unless $text =~ /\G([^,]*)\s*/gc;
-            $value = $1;
-            $value =~ s/^\s+|\s+$//g;
-        }
-
-        $attributes{$name} = $value;
-        last if pos($text) == length($text);
-        return unless $text =~ /\G,\s*/gc;
-    }
-
-    return \%attributes;
-}
-
-sub _is_audio_only_rendition {
-    my ($attributes) = @_;
-    return unless ref $attributes eq 'HASH';
-
-    for my $name (qw(NAME VIDEO AUDIO GROUP-ID)) {
-        return 1 if defined $attributes->{$name}
-            && lc($attributes->{$name}) eq 'audio_only';
-    }
-
-    return;
-}
-
-sub _resolve_master_uri {
-    my ($reference, $master_url) = @_;
-    return Plugins::Twitch::HLS::Playlist->resolve_https_url(
-        $reference,
-        $master_url,
-    );
-}
-
 sub _extract_audio_m3u8 {
-    my ($content, $master_url) = @_;
+    my ($content) = @_;
 
-    return unless $content && $content =~ /^#EXTM3U(?:\s|$)/;
-    return unless _resolve_master_uri($master_url, $master_url);
+    return unless $content;
 
-    my $awaiting_stream_uri = 0;
-    for my $line (split /\r?\n/, $content) {
-        next unless $line =~ /\S/;
+    my @lines = split /\n/, $content;
 
-        if ($line =~ /^#EXT-X-MEDIA:(.*)$/i) {
-            $awaiting_stream_uri = 0;
-            my $attributes = _hls_attributes($1) or next;
-            next unless uc($attributes->{TYPE} // '') eq 'AUDIO';
-            next unless _is_audio_only_rendition($attributes);
-            next unless defined $attributes->{URI};
-            return _resolve_master_uri($attributes->{URI}, $master_url);
+    for my $i (0 .. $#lines) {
+        next unless $lines[$i] =~ /\baudio_only\b/i;
+
+        for my $j ($i + 1 .. $#lines) {
+            return $lines[$j] =~ s/\r\z//r if $lines[$j] =~ m{^https://};
         }
-
-        if ($line =~ /^#EXT-X-STREAM-INF:(.*)$/i) {
-            my $attributes = _hls_attributes($1);
-            $awaiting_stream_uri = _is_audio_only_rendition($attributes)
-                ? 1 : 0;
-            next;
-        }
-
-        if ($awaiting_stream_uri && $line !~ /^#/) {
-            return _resolve_master_uri($line, $master_url);
-        }
-
-        # A stream URI must be the next non-empty line after its
-        # EXT-X-STREAM-INF tag. Another tag invalidates the association.
-        $awaiting_stream_uri = 0;
     }
 
     return;

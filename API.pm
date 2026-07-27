@@ -120,35 +120,6 @@ sub _build_uri {
     return $uri->as_string;
 }
 
-sub _get_audio_playlist {
-    my ($url, $callback) = @_;
-
-    _request('GET', $url, {}, undef, sub {
-        my ($content) = @_;
-        return $callback->(_extract_audio_m3u8($content));
-    });
-
-    return;
-}
-
-sub _extract_audio_m3u8 {
-    my ($content) = @_;
-
-    return unless $content;
-
-    my @lines = split /\n/, $content;
-
-    for my $i (0 .. $#lines) {
-        next unless $lines[$i] =~ /\baudio_only\b/i;
-
-        for my $j ($i + 1 .. $#lines) {
-            return $lines[$j] =~ s/\r\z//r if $lines[$j] =~ m{^https://};
-        }
-    }
-
-    return;
-}
-
 sub getChannel {
     my ($login, $callback) = @_;
 
@@ -219,7 +190,7 @@ GRAPHQL
             },
         );
 
-        return _get_audio_playlist($url, $callback);
+        return $callback->($url);
     });
 
     return;
@@ -318,7 +289,7 @@ sub getVodAudioUrl {
             },
         );
 
-        return _get_audio_playlist($url, $callback);
+        return $callback->($url);
     });
 
     return;

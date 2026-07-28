@@ -298,7 +298,6 @@ sub new {
     my $song = $args->{song};
     my $url = ($song && $song->can('streamUrl') ? $song->streamUrl : undef)
         || $args->{url};
-    $url =~ s{^twitch:stream:(https?:)}{$1};
     $url =~ s{^twitchhls:}{https:};
     $url =~ s/\|$//;
 

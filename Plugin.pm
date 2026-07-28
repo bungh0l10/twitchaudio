@@ -12,14 +12,6 @@ use Slim::Utils::Cache;
 use Plugins::Twitch::API;
 use Plugins::Twitch::Config ();
 use Plugins::Twitch::HLSStream ();
-use Plugins::Twitch::ProtocolHandler ();
-
-# Register during module loading, just like the native HLS handler. Material
-# Skin enumerates the live protocol registry; registering only from
-# initPlugin() can leave the public twitch scheme absent from that registry.
-Slim::Player::ProtocolHandlers->registerHandler(
-    twitch => 'Plugins::Twitch::ProtocolHandler'
-);
 
 my $log = Slim::Utils::Log->addLogCategory({
     category     => 'plugin.twitch',
@@ -43,6 +35,10 @@ sub initPlugin {
         menu   => 'radios',
         is_app => 1,
         weight => 1,
+    );
+
+    Slim::Player::ProtocolHandlers->registerHandler(
+        twitch => 'Plugins::Twitch::ProtocolHandler'
     );
 
     return;

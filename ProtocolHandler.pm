@@ -87,7 +87,9 @@ sub _set_hls_args {
 
 sub _native_hls_url {
     my ($url) = @_;
-    return "twitch:stream:$url";
+    $url =~ s{^https:}{twitchhls:};
+    $url =~ s{^http:}{twitchhls:};
+    return $url;
 }
 
 sub _song_for_media_id {
@@ -138,21 +140,13 @@ sub getMetadataFor {
 }
 
 # HTTPS::currentTrackHandler intentionally keeps a subclass as the handler.
-# That is correct for ordinary HTTPS redirects, but the resolved
-# twitch:stream URL must be opened by the native HLS handler.
+# That is correct for ordinary HTTPS redirects, but wrong after scanUrl()
+# changes twitch: into twitchhls:.  Without this override LMS opens the
+# first twitchhls URL with the inherited HTTPS handler and waits for its
+# socket timeout before a second Play attempt uses HLSStream.
 sub currentTrackHandler {
     my ($class, $song, $track) = @_;
-    return 'Plugins::Twitch::HLSStream'
-        if ($track->url || '') =~ /^twitch:stream:https?:/;
     return Slim::Player::ProtocolHandlers->handlerForURL($track->url);
-}
-
-# The resolved media URL deliberately keeps the public twitch: scheme so LMS
-# and skins continue to associate the current track with this plugin. Scanning
-# and playback are still delegated to the native HLS implementation.
-sub scanStream {
-    my ($class, @args) = @_;
-    return Plugins::Twitch::HLSStream->scanStream(@args);
 }
 
 sub scanUrl {

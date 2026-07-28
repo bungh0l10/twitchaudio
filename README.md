@@ -90,7 +90,7 @@ LMS UI item
   -> Twitch GraphQL playback token
   -> Twitch Usher master playlist
   -> audio_only media playlist
-  -> internal twitchhls: URL
+  -> internal twitch:stream: URL
   -> HLS playlist/session coordinator
   -> MPEG-TS or fragmented MP4 AAC extraction
   -> continuous ADTS-AAC stream
@@ -116,7 +116,7 @@ The returned access token and signature are passed to Twitch Usher. The resultin
 
 ### LMS protocol adaptation
 
-`ProtocolHandler.pm` registers the logical `twitch:` protocol and translates it into an internal `twitchhls:` URL after resolving the Twitch media playlist.
+`ProtocolHandler.pm` registers the logical `twitch:` protocol and translates it into an internal `twitch:stream:` URL after resolving the Twitch media playlist. Keeping the internal stream under the same registered scheme allows LMS clients and skins to retain Twitch as the media source. The legacy `twitchhls:` scheme remains supported for compatibility.
 
 The custom scheme prevents LMS's generic remote playlist scanner from treating the HLS media playlist as an ordinary M3U file containing independently playable tracks. The scan is explicitly configured as AAC audio with no video.
 
@@ -237,8 +237,8 @@ The detected audio properties are attached to the active LMS song and cached
 under the logical Twitch media identity. This keeps the technical information
 available when LMS asks with either the original `twitch:` URL or its resolved
 HLS URL, including metadata calls which pass the song object explicitly.
-Metadata responses continue to expose the public `twitch:` URL so skins retain
-the Twitch source label after LMS has switched playback to the internal HLS
+The resolved stream URL retains the registered `twitch:` scheme so skins keep
+the Twitch source label after LMS switches playback to the internal HLS
 handler.
 
 Metadata includes:

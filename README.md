@@ -287,7 +287,7 @@ The plugin registers the LMS log category:
 plugin.twitch
 ```
 
-Its default level is `INFO`.
+Its default level is `ERROR`.
 
 - `INFO` reports stream lifecycle events, VOD seeks and Twitch-muted sections.
 - `DEBUG` reports playlist processing, resolved stream URLs, segment/container

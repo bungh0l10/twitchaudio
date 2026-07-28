@@ -198,7 +198,7 @@ sub _scan_stream {
         return unless $stream_url;
 
         my $stream_type = uc($media_type);
-        $log->debug("TWITCH $stream_type STREAM URL: $stream_url");
+        # $log->debug("TWITCH $stream_type STREAM URL: $stream_url");
 
         my $native_url = _native_hls_url($stream_url);
         my $cache = Slim::Utils::Cache->new;

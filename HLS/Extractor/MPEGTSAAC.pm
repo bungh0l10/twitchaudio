@@ -177,11 +177,6 @@ sub extract {
         return '';
     }
 
-    if (!$self->{reported_audio_pid}++) {
-        $self->{log}->debug(sprintf 'Twitch HLS AAC PID: 0x%04x', $pid)
-            if $self->{log};
-    }
-
     my $pes = '';
     my ($first_cc, $last_cc, $audio_packets, $continuity_jumps)
         = (undef, undef, 0, 0);

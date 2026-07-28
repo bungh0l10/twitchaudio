@@ -15,7 +15,7 @@ use Plugins::Twitch::HLSStream ();
 
 my $log = Slim::Utils::Log->addLogCategory({
     category     => 'plugin.twitch',
-    defaultLevel => 'INFO',
+    defaultLevel => 'ERROR',
     description  => 'PLUGIN_TWITCH_DESCRIPTION',
     logGroups    => 'SCANNER',
 });

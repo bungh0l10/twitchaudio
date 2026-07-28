@@ -20,6 +20,11 @@ sub new {
 
 sub set_init { 1 }
 
+sub continuity_info {
+    my ($self) = @_;
+    return $self->{last_continuity};
+}
+
 sub _payload {
     my ($packet) = @_;
     return unless length($packet) == TS_PACKET_SIZE
@@ -158,6 +163,7 @@ sub _find_audio_pid {
 
 sub extract {
     my ($self, $ts) = @_;
+    delete $self->{last_continuity};
     return '' unless defined $ts;
 
     $self->{audio_pid} //= $self->_find_audio_pid($ts);
@@ -176,9 +182,9 @@ sub extract {
             if $self->{log};
     }
 
-    # Twitch restarts continuity counters at segment boundaries.
-    $self->{cc} = {};
     my $pes = '';
+    my ($first_cc, $last_cc, $audio_packets, $continuity_jumps)
+        = (undef, undef, 0, 0);
     for (my $i = 0; $i + TS_PACKET_SIZE <= length($ts); $i += TS_PACKET_SIZE) {
         my $h = _payload(substr($ts, $i, TS_PACKET_SIZE)) or next;
         next unless $h->{pid} == $pid;
@@ -186,9 +192,13 @@ sub extract {
         if (defined $self->{cc}{$pid}
             && $h->{cc} != (($self->{cc}{$pid} + 1) & 0x0f))
         {
+            $continuity_jumps++;
             $self->{log}->debug("Twitch TS continuity jump on audio PID $pid")
                 if $self->{log};
         }
+        $first_cc = $h->{cc} unless defined $first_cc;
+        $last_cc = $h->{cc};
+        $audio_packets++;
         $self->{cc}{$pid} = $h->{cc};
 
         my $payload = $h->{payload};
@@ -198,6 +208,14 @@ sub extract {
         }
         $pes .= $payload;
     }
+
+    $self->{last_continuity} = {
+        pid     => $pid,
+        first   => $first_cc,
+        last    => $last_cc,
+        packets => $audio_packets,
+        jumps   => $continuity_jumps,
+    } if $audio_packets;
 
     my $buffer = $self->{adts_buffer} . $pes;
     my $out = '';

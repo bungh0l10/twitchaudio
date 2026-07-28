@@ -374,10 +374,22 @@ sub _process_downloaded_segments {
             delete $segment->{initial_fraction};
         }
         $self->_report_audio_info($segment->{aac});
+
+        my $continuity = '';
+        if (($segment->{container} || '') eq 'mpeg-ts') {
+            my $info = $self->{ts_extractor}->continuity_info;
+            if ($info) {
+                $continuity = sprintf(
+                    ', AAC PID 0x%04x, CC %d->%d (%d packets, %d jumps)',
+                    @$info{qw(pid first last packets jumps)},
+                );
+            }
+        }
         $self->{log}->debug(sprintf(
-            'Twitch HLS %s segment: %d bytes, %d ADTS bytes',
+            'Twitch HLS %s segment %s: %d bytes, %d ADTS bytes%s',
             uc($segment->{container} || 'mpeg-ts'),
-            length($media), length($segment->{aac}),
+            defined $segment->{sequence} ? $segment->{sequence} : '?',
+            length($media), length($segment->{aac}), $continuity,
         ));
         last if $self->_buffered_seconds >= $target;
     }

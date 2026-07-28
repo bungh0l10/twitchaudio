@@ -178,7 +178,9 @@ For the selected audio PID, the extractor:
 - validates ADTS synchronization and frame lengths;
 - emits complete ADTS frames only.
 
-The AAC PID is cached after discovery. Twitch may restart continuity counters at segment boundaries, so continuity tracking is reset for every segment.
+The AAC PID is cached after discovery. Continuity tracking is retained across
+ordinary segment boundaries and reset together with the extractor at an HLS
+discontinuity or playlist-sequence restart.
 
 ### Fragmented MP4 with AAC
 
@@ -288,7 +290,9 @@ plugin.twitch
 Its default level is `INFO`.
 
 - `INFO` reports stream lifecycle events, VOD seeks and Twitch-muted sections.
-- `DEBUG` reports playlist processing, resolved stream URLs, segment/container statistics, AAC PID discovery, continuity changes and stored resume positions.
+- `DEBUG` reports playlist processing, resolved stream URLs, segment/container
+  statistics with media sequence and MPEG-TS continuity-counter ranges, AAC
+  PID discovery, continuity changes and stored resume positions.
 - `ERROR` reports HTTP failures, invalid GraphQL or JSON responses, missing playback data, invalid playlists, unsupported MP4 initialization data, missing AAC streams and failed playlist or segment requests.
 
 Resolved Twitch HLS URLs contain temporary playback credentials and are logged only at `DEBUG`. Debug logs should therefore be treated as potentially sensitive and should be sanitized before publication.

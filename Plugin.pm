@@ -40,6 +40,9 @@ sub initPlugin {
     Slim::Player::ProtocolHandlers->registerHandler(
         twitch => 'Plugins::Twitch::ProtocolHandler'
     );
+    Slim::Player::ProtocolHandlers->registerHandler(
+        twitchhls => 'Plugins::Twitch::HLSStream'
+    );
 
     return;
 }

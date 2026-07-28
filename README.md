@@ -233,6 +233,11 @@ as `Twitch · AAC, 48 kHz`. It deliberately
 does not expose a bit depth, because compressed AAC has no PCM bit-depth field,
 or a single bitrate, because Twitch AAC may be variable-bitrate.
 
+The detected audio properties are attached to the active LMS song and cached
+under the logical Twitch media identity. This keeps the technical information
+available when LMS asks with either the original `twitch:` URL or its resolved
+HLS URL, including metadata calls which pass the song object explicitly.
+
 Metadata includes:
 
 - stream or VOD title;

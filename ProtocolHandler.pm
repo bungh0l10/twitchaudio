@@ -117,8 +117,13 @@ sub canSeek          { 0 }
 sub songBytes        { 0 }
 
 sub getMetadataFor {
-    my ($class, $client, $url) = @_;
-    my $meta = Plugins::Twitch::HLSStream->getMetadataFor($client, $url);
+    my ($class, $client, $url, $force, $song) = @_;
+    my $meta = Plugins::Twitch::HLSStream->getMetadataFor(
+        $client,
+        $url,
+        $force,
+        $song,
+    );
 
     if ($client && $url =~ /^twitch:(live|vod):([^|?#]+)/)
     {

@@ -103,6 +103,44 @@ sub _restore_cached_metadata {
     return $meta;
 }
 
+sub _restore_audio_info {
+    my ($song, $url) = @_;
+
+    my $audio_info = $song
+        ? $song->pluginData('twitchAudioInfo')
+        : undef;
+    return $audio_info if ref $audio_info eq 'HASH';
+
+    my ($type, $id) = _twitch_media_id($song, $url);
+    return unless $type && $id;
+    $id = lc $id if $type eq 'live';
+
+    $audio_info = Slim::Utils::Cache->new->get(
+        "twitch:audio-info:$type:$id",
+    );
+    return unless ref $audio_info eq 'HASH';
+
+    $song->pluginData('twitchAudioInfo', $audio_info) if $song;
+    return $audio_info;
+}
+
+sub _store_audio_info {
+    my ($song, $audio_info) = @_;
+    return unless $song && ref $audio_info eq 'HASH';
+
+    $song->pluginData('twitchAudioInfo', $audio_info);
+
+    my ($type, $id) = _twitch_media_id($song);
+    return unless $type && $id;
+    $id = lc $id if $type eq 'live';
+    Slim::Utils::Cache->new->set(
+        "twitch:audio-info:$type:$id",
+        $audio_info,
+        3600,
+    );
+    return;
+}
+
 sub _song_for_url {
     my ($client, $url) = @_;
     return unless $client;
@@ -209,15 +247,13 @@ sub _clear_live_duration {
 }
 
 sub getMetadataFor {
-    my ($class, $client, $url) = @_;
-    my $song = _song_for_url($client, $url);
+    my ($class, $client, $url, undef, $song) = @_;
+    $song ||= _song_for_url($client, $url);
 
     my $meta = _restore_cached_metadata($song, $url);
     my ($url_type) = _twitch_media_id(undef, $url);
     my $is_vod = $url_type ? $url_type eq 'vod' : _is_vod_song($song);
-    my $audio_info = $song
-        ? $song->pluginData('twitchAudioInfo')
-        : undef;
+    my $audio_info = _restore_audio_info($song, $url);
     my $type = 'AAC (Twitch)';
     my $sample_rate = ref $audio_info eq 'HASH'
         ? $audio_info->{sample_rate}
@@ -316,7 +352,7 @@ sub _start_session {
         on_audio_info => sub {
             my ($audio_info) = @_;
             return unless $song && ref $audio_info eq 'HASH';
-            $song->pluginData('twitchAudioInfo', $audio_info);
+            _store_audio_info($song, $audio_info);
             _notify_metadata($song);
         },
         on_seek => sub {

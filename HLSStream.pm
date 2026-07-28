@@ -251,8 +251,11 @@ sub getMetadataFor {
     $song ||= _song_for_url($client, $url);
 
     my $meta = _restore_cached_metadata($song, $url);
-    my ($url_type) = _twitch_media_id(undef, $url);
+    my ($url_type, $media_id) = _twitch_media_id($song, $url);
     my $is_vod = $url_type ? $url_type eq 'vod' : _is_vod_song($song);
+    my $display_url = $url_type && $media_id
+        ? "twitch:$url_type:$media_id"
+        : $url;
     my $audio_info = _restore_audio_info($song, $url);
     my $type = 'AAC (Twitch)';
     my $sample_rate = ref $audio_info eq 'HASH'
@@ -272,7 +275,10 @@ sub getMetadataFor {
         type         => $type,
         originalType => $type,
         originaltype => $type,
-        url          => $url,
+        # Keep the public plugin URL in LMS status responses. Returning the
+        # resolved twitchhls URL here makes skins lose the Twitch source label
+        # as soon as HLS scanning has completed.
+        url          => $display_url,
     };
 }
 

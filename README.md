@@ -237,6 +237,9 @@ The detected audio properties are attached to the active LMS song and cached
 under the logical Twitch media identity. This keeps the technical information
 available when LMS asks with either the original `twitch:` URL or its resolved
 HLS URL, including metadata calls which pass the song object explicitly.
+Metadata responses continue to expose the public `twitch:` URL so skins retain
+the Twitch source label after LMS has switched playback to the internal HLS
+handler.
 
 Metadata includes:
 

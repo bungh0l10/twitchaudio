@@ -24,6 +24,16 @@ sub getDisplayName {
     return 'PLUGIN_TWITCH_NAME';
 }
 
+sub _register_protocol_handlers {
+    Slim::Player::ProtocolHandlers->registerHandler(
+        twitch => 'Plugins::Twitch::ProtocolHandler'
+    );
+    Slim::Player::ProtocolHandlers->registerHandler(
+        twitchhls => 'Plugins::Twitch::HLSStream'
+    );
+    return;
+}
+
 sub initPlugin {
     my ($class) = @_;
 
@@ -37,13 +47,16 @@ sub initPlugin {
         weight => 1,
     );
 
-    Slim::Player::ProtocolHandlers->registerHandler(
-        twitch => 'Plugins::Twitch::ProtocolHandler'
-    );
-    Slim::Player::ProtocolHandlers->registerHandler(
-        twitchhls => 'Plugins::Twitch::HLSStream'
-    );
+    _register_protocol_handlers();
 
+    return;
+}
+
+# Re-assert both handlers after every plugin has completed its normal
+# initialization. This avoids a later initPlugin replacing a registration made
+# by Twitch earlier in the alphabetically ordered startup pass.
+sub postinitPlugin {
+    _register_protocol_handlers();
     return;
 }
 

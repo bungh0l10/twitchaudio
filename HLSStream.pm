@@ -14,6 +14,7 @@ use Slim::Control::Request ();
 use Slim::Utils::Cache;
 use Slim::Utils::Errno;
 use Slim::Utils::Log qw(logger);
+use Slim::Utils::Strings qw(cstring);
 use Slim::Utils::Versions ();
 use Time::HiRes qw(time);
 
@@ -131,14 +132,51 @@ sub _store_audio_info {
 
     $song->pluginData('twitchAudioInfo', $audio_info);
 
+    # Keep LMS' track properties in sync as well. Material Skin can obtain
+    # technical metadata from either getMetadataFor() or the active track.
+    for my $method (qw(track currentTrack)) {
+        next unless $song->can($method);
+        my $track = $song->$method or next;
+        $track->samplerate($audio_info->{sample_rate})
+            if $audio_info->{sample_rate} && $track->can('samplerate');
+        $track->channels($audio_info->{channels})
+            if $audio_info->{channels} && $track->can('channels');
+    }
+
+    my $client = $song->master;
+    my $display_type = _audio_type($client, $audio_info);
+    my $song_meta = $song->pluginData('wmaMeta');
+    if (ref $song_meta eq 'HASH') {
+        $song->pluginData('wmaMeta', {
+            %$song_meta,
+            type         => $display_type,
+            originalType => $display_type,
+            originaltype => $display_type,
+        });
+    }
+
     my ($type, $id) = _twitch_media_id($song);
     return unless $type && $id;
     $id = lc $id if $type eq 'live';
-    Slim::Utils::Cache->new->set(
+    my $cache = Slim::Utils::Cache->new;
+    $cache->set(
         "twitch:audio-info:$type:$id",
         $audio_info,
         Plugins::Twitch::Config::cache_ttl(),
     );
+    my $cached_meta = $cache->get("twitch:$type:$id");
+    if (ref $cached_meta eq 'HASH') {
+        $cache->set(
+            "twitch:$type:$id",
+            {
+                %$cached_meta,
+                type         => $display_type,
+                originalType => $display_type,
+                originaltype => $display_type,
+            },
+            Plugins::Twitch::Config::cache_ttl(),
+        );
+    }
     return;
 }
 
@@ -228,10 +266,29 @@ sub _set_progress_offset {
 sub _notify_metadata {
     my ($song) = @_;
     return unless $song && $song->master;
+    my $client = $song->master;
+    $client->currentPlaylistUpdateTime(time())
+        if $client->can('currentPlaylistUpdateTime');
     Slim::Control::Request::notifyFromArray(
-        $song->master,
+        $client,
         ['newmetadata'],
     );
+}
+
+sub _audio_type {
+    my ($client, $audio_info) = @_;
+    my $service = cstring($client, 'PLUGIN_TWITCH_NAME') || 'Twitch';
+    my $codec = ref $audio_info eq 'HASH' && $audio_info->{profile}
+        ? $audio_info->{profile}
+        : 'AAC';
+    my $rate = ref $audio_info eq 'HASH'
+        ? $audio_info->{sample_rate}
+        : undef;
+
+    # Follow LMS-YouTube's provider-first convention. Material Skin splits
+    # "Provider (codec@rateHz)" into its service and technical labels.
+    my $technical = $codec . ($rate ? "\@$rate" . 'Hz' : '');
+    return "$service ($technical)";
 }
 
 sub _clear_live_duration {
@@ -259,7 +316,7 @@ sub getMetadataFor {
     my ($url_type) = _twitch_media_id($song, $url);
     my $is_vod = $url_type ? $url_type eq 'vod' : _is_vod_song($song);
     my $audio_info = _restore_audio_info($song, $url);
-    my $type = 'AAC (Twitch)';
+    my $type = _audio_type($client, $audio_info);
     my $sample_rate = ref $audio_info eq 'HASH'
         ? $audio_info->{sample_rate}
         : undef;

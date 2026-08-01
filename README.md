@@ -240,13 +240,12 @@ The tracked position represents audio delivered from the plugin to LMS. It is ca
 ## Metadata and duration handling
 
 Once a segment has been extracted, the plugin exposes the exact AAC profile
-and sample rate from its ADTS header. The localized plugin name from
-`strings.txt` is used as the service name and the detected profile as the
-media type, allowing Material Skin to render values such as
-`Twitch · AAC-LC, 48 kHz`. Until the first frame has been parsed, the media
-type falls back to `Twitch (AAC)`. Internally the populated value follows the
-provider-first convention used by LMS-YouTube, for example
-`Twitch (AAC-LC@48000Hz)`. It deliberately
+and sample rate from its ADTS header. These values are exposed in the fields
+expected by Material Skin: `aac` as the media `type`, the parsed rate as
+`samplerate`, and Twitch as the service inferred from the track protocol.
+This allows Material Skin to render `Twitch · AAC, 48 kHz`. The exact AAC
+profile remains available internally in `twitchAudioInfo`, because Material
+Skin does not recognize profile names such as `AAC-LC` as codecs. It deliberately
 does not expose a bit depth, because compressed AAC has no PCM bit-depth field,
 or a single bitrate, because Twitch AAC may be variable-bitrate.
 

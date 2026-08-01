@@ -14,7 +14,6 @@ use Slim::Control::Request ();
 use Slim::Utils::Cache;
 use Slim::Utils::Errno;
 use Slim::Utils::Log qw(logger);
-use Slim::Utils::Strings qw(cstring);
 use Slim::Utils::Versions ();
 use Time::HiRes qw(time);
 
@@ -276,19 +275,11 @@ sub _notify_metadata {
 }
 
 sub _audio_type {
-    my ($client, $audio_info) = @_;
-    my $service = cstring($client, 'PLUGIN_TWITCH_NAME') || 'Twitch';
-    my $codec = ref $audio_info eq 'HASH' && $audio_info->{profile}
-        ? $audio_info->{profile}
-        : 'AAC';
-    my $rate = ref $audio_info eq 'HASH'
-        ? $audio_info->{sample_rate}
-        : undef;
-
-    # Follow LMS-YouTube's provider-first convention. Material Skin splits
-    # "Provider (codec@rateHz)" into its service and technical labels.
-    my $technical = $codec . ($rate ? "\@$rate" . 'Hz' : '');
-    return "$service ($technical)";
+    # Material Skin obtains the service from the track URL/protocol, the
+    # codec from type and the sample rate from samplerate. Keep these fields
+    # separate; commas and parenthesized values are not parsed as extra
+    # technical fields. The exact profile remains in twitchAudioInfo.
+    return 'aac';
 }
 
 sub _clear_live_duration {

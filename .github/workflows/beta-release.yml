@@ -1,0 +1,127 @@
+name: Beta Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      beta_version:
+        description: "Numeric plugin version, e.g. 0.0.1.4.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: beta-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    environment: beta
+
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v6
+        with:
+          ref: develop
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate beta version
+        id: version
+        shell: bash
+        env:
+          BETA_VERSION: ${{ inputs.beta_version }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${BETA_VERSION}" =~ ^[0-9]+(\.[0-9]+){2,}$ ]]; then
+            printf '%s\n' "beta_version must contain only dot-separated numbers" >&2
+            exit 1
+          fi
+
+          tag="${BETA_VERSION}-beta"
+          printf 'version=%s\n' "${BETA_VERSION}" >> "${GITHUB_OUTPUT}"
+          printf 'tag=%s\n' "${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check if tag already exists
+        id: tag-check
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
+            printf '%s\n' "Tag ${TAG} already exists" >&2
+            exit 1
+          fi
+
+      - name: Set plugin version
+        shell: bash
+        env:
+          BETA_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          perl -0pi -e 's{<version>[^<]+</version>}{<version>$ENV{BETA_VERSION}</version>}' install.xml
+          grep -Fq "<version>${BETA_VERSION}</version>" install.xml
+
+      - name: Build plugin archive
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git archive --worktree-attributes --format=zip --output=TWITCH.zip HEAD
+          zip -q -u TWITCH.zip install.xml
+
+          archive_entries="$(unzip -Z1 TWITCH.zip)"
+          grep -qx 'install.xml' <<< "${archive_entries}"
+
+          if grep -Eq '^(\.github|repo)/' <<< "${archive_entries}"; then
+            printf '%s\n' "Release-only files found in TWITCH.zip" >&2
+            exit 1
+          fi
+
+      - name: Setup Perl dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt update
+          sudo apt install -y libxml-simple-perl libdigest-sha-perl
+
+      - name: Update beta repository feed
+        shell: bash
+        env:
+          BETA_VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          url="https://github.com/${{ github.repository }}/releases/download/${TAG}"
+          perl repo/release.pl repo/beta.xml "${BETA_VERSION}" TWITCH.zip "${url}"
+
+      - name: Create GitHub pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: develop
+          name: Beta ${{ steps.version.outputs.version }}
+          body: Beta build from the develop branch. Not intended for production use.
+          draft: false
+          prerelease: true
+          files: TWITCH.zip
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit beta feed
+        shell: bash
+        env:
+          BETA_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add repo/beta.xml
+          git commit -m "Update beta feed for ${BETA_VERSION}"
+          git push origin HEAD:develop

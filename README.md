@@ -38,6 +38,19 @@ https://raw.githubusercontent.com/bungh0l10/twitchaudio/main/repo/repo.xml
 
 After LMS has loaded the repository, select the Twitch plugin, apply the change and restart LMS when requested.
 
+### Beta releases
+
+Development builds are published separately from stable releases. Testers can add
+the following repository URL to LMS:
+
+```text
+https://raw.githubusercontent.com/bungh0l10/twitchaudio/develop/repo/beta.xml
+```
+
+Beta builds use numeric versions such as `0.0.1.4.1` and are published as GitHub
+pre-releases from the `develop` branch. They are intended for testing and may be
+less stable than builds from the main repository URL.
+
 ### Manual installation
 
 Download `TWITCH.zip` from the matching GitHub release and install or extract it as an LMS plugin named `Twitch`. The resulting plugin directory must contain `install.xml`, `Plugin.pm`, `ProtocolHandler.pm`, `API.pm`, `HLSStream.pm`, and the `HLS/` and `HTML/` subdirectories.

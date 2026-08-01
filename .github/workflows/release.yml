@@ -1,4 +1,4 @@
-name: Publish
+name: Stable Release
 
 on:
   workflow_dispatch:
@@ -12,7 +12,9 @@ concurrency:
 
 jobs:
   build:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: production
 
     steps:
       - name: Checkout Repository

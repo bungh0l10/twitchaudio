@@ -239,10 +239,13 @@ The tracked position represents audio delivered from the plugin to LMS. It is ca
 
 ## Metadata and duration handling
 
-Once a segment has been extracted, the plugin exposes the exact sample rate
-from its ADTS header in the dedicated LMS `samplerate` field. It retains
-`AAC (Twitch)` as the media type, allowing Material Skin to render the values
-as `Twitch · AAC, 48 kHz`. It deliberately
+Once a segment has been extracted, the plugin exposes the exact AAC profile
+and sample rate from its ADTS header. These values are exposed in the fields
+expected by Material Skin: `aac` as the media `type`, the parsed rate as
+`samplerate`, and Twitch as the service inferred from the track protocol.
+This allows Material Skin to render `Twitch · AAC, 48 kHz`. The exact AAC
+profile remains available internally in `twitchAudioInfo`, because Material
+Skin does not recognize profile names such as `AAC-LC` as codecs. It deliberately
 does not expose a bit depth, because compressed AAC has no PCM bit-depth field,
 or a single bitrate, because Twitch AAC may be variable-bitrate.
 

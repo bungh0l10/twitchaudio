@@ -45,7 +45,9 @@ sub client_id {
     my $client_id = $prefs->get('client_id');
 
     return DEFAULT_CLIENT_ID
-        unless defined $client_id && length $client_id;
+        unless defined $client_id
+            && length $client_id
+            && $client_id !~ /[[:space:][:cntrl:]]/;
 
     return $client_id;
 }

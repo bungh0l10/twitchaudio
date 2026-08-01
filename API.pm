@@ -137,12 +137,17 @@ sub _extract_audio_m3u8 {
     return unless $content;
 
     my @lines = split /\n/, $content;
+    return unless @lines >= 2;
 
-    for my $i (0 .. $#lines) {
-        next unless $lines[$i] =~ /\baudio_only\b/i;
+    for my $match (
+        qr/\bSTABLE-VARIANT-ID="audio_only"/i,
+        qr/\baudio_only\b/i,
+    ) {
+        for my $i (0 .. $#lines - 1) {
+            next unless $lines[$i] =~ $match;
 
-        for my $j ($i + 1 .. $#lines) {
-            return $lines[$j] =~ s/\r\z//r if $lines[$j] =~ m{^https://};
+            my $uri = $lines[$i + 1] =~ s/\r\z//r;
+            return $uri if $uri =~ m{^https://};
         }
     }
 

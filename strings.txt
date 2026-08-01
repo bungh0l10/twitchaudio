@@ -7,13 +7,21 @@ PLUGIN_TWITCH_DESCRIPTION
 	EN	Listen to twitch streams via LMS
 
 PLUGIN_TWITCH_SEARCH
-	DE	Twitch-Kanalname oder VOD eingeben
-	EN	Enter Twitch channel name or VOD
+	DE	Twitch-Kanalnamen oder VOD-ID eintragen
+	EN	Enter Twitch channel name or VOD ID
 
 PLUGIN_TWITCH_CHANNEL_DOES_NOT_EXIST
 	DE	Kanal existiert nicht
 	EN	Channel does not exist
 
-PLUGIN_TWITCH_VOD_DOES_NOT_EXIST
-	DE	VOD existiert nicht
-	EN	VOD does not exist
+PLUGIN_TWITCH_HIGHLIGHTS
+	DE	Highlights
+	EN	Highlights
+
+PLUGIN_TWITCH_ARCHIVE
+	DE	Archiv
+	EN	Archive
+
+PLUGIN_TWITCH_OFFLINE
+	DE	Offline
+	EN	Offline

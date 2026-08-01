@@ -5,6 +5,7 @@ use warnings;
 
 use XML::Simple qw(XMLin XMLout);
 use Digest::SHA qw(sha1_hex);
+use File::Basename qw(basename);
 
 if (@ARGV != 4) {
     die "Usage: $0 <repo.xml> <version> <zipfile> <url>\n";
@@ -58,7 +59,7 @@ close $fh;
 $plugin->{sha}[0] = $sha1;
 
 $url =~ s{/\z}{};
-my $full_url = $url . q{/} . $zipfile;
+my $full_url = $url . q{/} . basename($zipfile);
 
 $plugin->{url}[0] = $full_url;
 

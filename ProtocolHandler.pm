@@ -6,6 +6,7 @@ use warnings;
 use parent qw(Slim::Player::Protocols::HTTPS);
 
 use Slim::Utils::Log;
+use Slim::Utils::Strings qw(cstring);
 use Slim::Utils::Scanner::Remote ();
 use Slim::Utils::Cache;
 use Slim::Control::Request ();
@@ -300,7 +301,8 @@ sub _applyInitialMetadata {
         return unless $data && $data->{user};
 
         my $u = $data->{user};
-        my $title = $u->{stream}->{title} // 'Offline';
+        my $title = $u->{stream}->{title}
+            // cstring($client, 'PLUGIN_TWITCH_OFFLINE');
         my $current = $song->pluginData('wmaMeta');
         my $initial_refresh = !$song->pluginData(
             'twitchLiveMetadataInitialized'

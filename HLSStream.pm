@@ -17,6 +17,7 @@ use Slim::Utils::Log qw(logger);
 use Slim::Utils::Versions ();
 use Time::HiRes qw(time);
 
+use Plugins::Twitch::Config ();
 use Plugins::Twitch::HLS::Session ();
 
 my $log = logger('plugin.twitch');
@@ -136,7 +137,7 @@ sub _store_audio_info {
     Slim::Utils::Cache->new->set(
         "twitch:audio-info:$type:$id",
         $audio_info,
-        3600,
+        Plugins::Twitch::Config::cache_ttl(),
     );
     return;
 }
@@ -188,7 +189,11 @@ sub _persist_resume_position {
 
     _set_resume_position($song, $position);
     my $key = _resume_cache_key($song) or return;
-    Slim::Utils::Cache->new->set($key, $position, 3600);
+    Slim::Utils::Cache->new->set(
+        $key,
+        $position,
+        Plugins::Twitch::Config::cache_ttl(),
+    );
     return;
 }
 

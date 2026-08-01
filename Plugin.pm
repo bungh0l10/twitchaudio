@@ -114,7 +114,7 @@ sub _searchChannelLogin {
             unless $data && $data->{user};
 
         my $user = $data->{user};
-        my $channel = _buildChannelData($user);
+        my $channel = _buildChannelData($client, $user);
 
         _cache_live_metadata($channel);
 
@@ -124,16 +124,16 @@ sub _searchChannelLogin {
             my @items = (_buildChannelUiItem($channel));
 
             for my $vod_type (
-                ['Highlights', 'highlights'],
-                ['Archive',    'archives'],
+                ['PLUGIN_TWITCH_HIGHLIGHTS', 'highlights'],
+                ['PLUGIN_TWITCH_ARCHIVE',    'archives'],
             ) {
-                my ($title, $type) = @$vod_type;
+                my ($title_key, $type) = @$vod_type;
                 next unless @{ _vod_edges($vod_data, $type) };
 
                 push @items, _buildVodMenuItem(
                     $user->{login},
                     $channel,
-                    $title,
+                    cstring($client, $title_key),
                     $type,
                 );
             }
@@ -196,12 +196,7 @@ sub _buildVodMenuItem {
                 my $edges = _vod_edges($data, $type);
 
                 unless (@$edges) {
-                    return $cb->({
-                        items => [{
-                            name => 'No VODs found',
-                            type => 'text',
-                        }],
-                    });
+                    return $cb->({ items => [] });
                 }
 
                 my @items;
@@ -226,7 +221,7 @@ sub _buildVodUiItem {
 
     my $vod = $edge->{node} || return;
     my $vod_id = $vod->{id} || return;
-    my $title = $vod->{title} || 'Untitled';
+    my $title = $vod->{title} || return;
     my $image = $vod->{thumbnailURLs}[0];
 
     return {
@@ -307,13 +302,14 @@ sub _buildChannelUiItem {
 }
 
 sub _buildChannelData {
-    my ($user) = @_;
+    my ($client, $user) = @_;
 
     my $stream = $user->{stream} // {};
 
     return {
         artist => lc($user->{login} // ''),
-        title  => $stream->{title} // 'Offline',
+        title  => $stream->{title}
+            // cstring($client, 'PLUGIN_TWITCH_OFFLINE'),
         cover  => $user->{profileImageURL} // '',
     };
 }

@@ -282,7 +282,7 @@ The plugin initializes three LMS preferences in the `plugin.twitch` namespace:
 
 Invalid, empty or non-positive values fall back to their defaults. There is currently no dedicated settings page; preferences must be changed through LMS configuration mechanisms or by modifying the plugin defaults.
 
-The VOD standby-resume cache has a fixed lifetime of 3,600 seconds.
+The VOD standby-resume and detected audio-information caches use `cache_ttl`.
 
 ## Logging
 

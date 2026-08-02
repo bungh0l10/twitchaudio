@@ -73,7 +73,7 @@ sub _apply_song_metadata {
             %$meta,
             map {
                 exists $current->{$_} ? ($_ => $current->{$_}) : ()
-            } qw(type originalType originaltype),
+            } qw(type originalType),
         };
     }
 

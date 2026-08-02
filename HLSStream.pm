@@ -138,8 +138,6 @@ sub _store_audio_info {
         my $track = $song->$method or next;
         $track->samplerate($audio_info->{sample_rate})
             if $audio_info->{sample_rate} && $track->can('samplerate');
-        $track->channels($audio_info->{channels})
-            if $audio_info->{channels} && $track->can('channels');
     }
 
     my $client = $song->master;
@@ -150,7 +148,6 @@ sub _store_audio_info {
             %$song_meta,
             type         => $display_type,
             originalType => $display_type,
-            originaltype => $display_type,
         });
     }
 
@@ -171,7 +168,6 @@ sub _store_audio_info {
                 %$cached_meta,
                 type         => $display_type,
                 originalType => $display_type,
-                originaltype => $display_type,
             },
             Plugins::Twitch::Config::cache_ttl(),
         );
@@ -282,23 +278,6 @@ sub _audio_type {
     return 'aac';
 }
 
-sub _clear_live_duration {
-    my ($song) = @_;
-    return unless $song;
-
-    # Clear only transient song/player timing state. Live metadata itself
-    # deliberately exposes no duration, while persistent track data remains
-    # untouched.
-    $song->duration(0);
-    $song->startOffset(0);
-
-    my $client = $song->master;
-    $client->remoteStreamStartTime(time())
-        if $client && $client->can('remoteStreamStartTime');
-
-    _notify_metadata($song);
-}
-
 sub getMetadataFor {
     my ($class, $client, $url, undef, $song) = @_;
     $song ||= _song_for_url($client, $url);
@@ -318,13 +297,9 @@ sub getMetadataFor {
         cover        => $meta->{cover},
         icon         => $meta->{cover},
         duration     => $is_vod && $song ? ($song->duration || undef) : undef,
-        # AAC is commonly variable-bitrate. Do not expose the previous
-        # segment-duration estimate as an exact technical property.
-        bitrate      => undef,
         samplerate   => $sample_rate,
         type         => $type,
         originalType => $type,
-        originaltype => $type,
         url          => $url,
     };
 }
@@ -339,7 +314,6 @@ sub scanStream {
 
     if (my $song = $args->{song}) {
         $song->handler($class);
-        _clear_live_duration($song) unless _is_vod_song($song);
     }
 
     my $cb = $args->{cb} || sub {};
@@ -365,8 +339,6 @@ sub new {
                 && (!defined $seek_time || $seek_time <= 0);
     }
     $seek_time = undef unless $is_vod;
-
-    _clear_live_duration($song) unless $is_vod;
 
     _set_progress_offset($song, $seek_time)
         if defined $seek_time && $seek_time > 0;

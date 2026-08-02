@@ -249,6 +249,10 @@ Skin does not recognize profile names such as `AAC-LC` as codecs. It deliberatel
 does not expose a bit depth, because compressed AAC has no PCM bit-depth field,
 or a single bitrate, because Twitch AAC may be variable-bitrate.
 
+Metadata responses retain the canonical `twitch:live:` or `twitch:vod:` URL
+while playback uses the internal HLS URL. This keeps Material Skin's Twitch
+service label stable when LMS refreshes metadata after playback starts.
+
 The detected audio properties are attached to the active LMS song and cached
 under the logical Twitch media identity. This keeps the technical information
 available when LMS asks with either the original `twitch:` URL or its resolved

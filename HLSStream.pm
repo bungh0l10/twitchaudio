@@ -283,20 +283,13 @@ sub getMetadataFor {
     $song ||= _song_for_url($client, $url);
 
     my $meta = _restore_cached_metadata($song, $url);
-    my ($url_type, $media_id) = _twitch_media_id($song, $url);
+    my ($url_type) = _twitch_media_id($song, $url);
     my $is_vod = $url_type ? $url_type eq 'vod' : _is_vod_song($song);
     my $audio_info = _restore_audio_info($song, $url);
     my $type = _audio_type($client, $audio_info);
     my $sample_rate = ref $audio_info eq 'HASH'
         ? $audio_info->{sample_rate}
         : undef;
-    # Material Skin derives the displayed service from the metadata URL.
-    # Keep the public twitch: identity here even while playback uses an
-    # internal twitchhls: or HTTPS media-playlist URL.
-    my $metadata_url = $url_type && defined $media_id
-        ? "twitch:$url_type:$media_id"
-        : $url;
-
     return {
         title        => $meta->{title},
         artist       => $meta->{artist},
@@ -306,7 +299,7 @@ sub getMetadataFor {
         samplerate   => $sample_rate,
         type         => $type,
         originalType => $type,
-        url          => $metadata_url,
+        url          => $url,
     };
 }
 
@@ -319,7 +312,22 @@ sub scanStream {
     $track->update;
 
     if (my $song = $args->{song}) {
+        # Keep the logical twitch: track as the song/playlist identity. LMS
+        # exposes song->currentTrack()->url as status tag "u", which Material
+        # Skin uses to derive the service name. Returning the internal HLS
+        # track here would replace that identity after scanning.
         $song->handler($class);
+        $song->streamUrl($url);
+
+        my $logical_track = $song->track || $track;
+        $logical_track->content_type('aac');
+        $logical_track->update;
+        my $cb = $args->{cb} || sub {};
+        return $cb->(
+            $logical_track,
+            undef,
+            @{ $args->{pt} || [] },
+        );
     }
 
     my $cb = $args->{cb} || sub {};

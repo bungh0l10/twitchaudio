@@ -138,8 +138,6 @@ sub _store_audio_info {
         my $track = $song->$method or next;
         $track->samplerate($audio_info->{sample_rate})
             if $audio_info->{sample_rate} && $track->can('samplerate');
-        $track->channels($audio_info->{channels})
-            if $audio_info->{channels} && $track->can('channels');
     }
 
     my $client = $song->master;
@@ -339,7 +337,6 @@ sub scanStream {
 
     if (my $song = $args->{song}) {
         $song->handler($class);
-        _clear_live_duration($song) unless _is_vod_song($song);
     }
 
     my $cb = $args->{cb} || sub {};

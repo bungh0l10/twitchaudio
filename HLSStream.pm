@@ -278,23 +278,6 @@ sub _audio_type {
     return 'aac';
 }
 
-sub _clear_live_duration {
-    my ($song) = @_;
-    return unless $song;
-
-    # Clear only transient song/player timing state. Live metadata itself
-    # deliberately exposes no duration, while persistent track data remains
-    # untouched.
-    $song->duration(0);
-    $song->startOffset(0);
-
-    my $client = $song->master;
-    $client->remoteStreamStartTime(time())
-        if $client && $client->can('remoteStreamStartTime');
-
-    _notify_metadata($song);
-}
-
 sub getMetadataFor {
     my ($class, $client, $url, undef, $song) = @_;
     $song ||= _song_for_url($client, $url);
@@ -356,8 +339,6 @@ sub new {
                 && (!defined $seek_time || $seek_time <= 0);
     }
     $seek_time = undef unless $is_vod;
-
-    _clear_live_duration($song) unless $is_vod;
 
     _set_progress_offset($song, $seek_time)
         if defined $seek_time && $seek_time > 0;

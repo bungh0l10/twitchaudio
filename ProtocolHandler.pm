@@ -66,15 +66,6 @@ sub _apply_song_metadata {
             $changed = 1 if $old ne $new;
         }
         return unless $changed;
-
-        # Audio probing adds the provider/codec label later in the playback
-        # lifecycle. Do not discard it when live title metadata is refreshed.
-        $meta = {
-            %$meta,
-            map {
-                exists $current->{$_} ? ($_ => $current->{$_}) : ()
-            } qw(type originalType),
-        };
     }
 
     $song->pluginData('wmaMeta', $meta);

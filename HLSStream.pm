@@ -148,7 +148,6 @@ sub _store_audio_info {
             %$song_meta,
             type         => $display_type,
             originalType => $display_type,
-            originaltype => $display_type,
         });
     }
 
@@ -169,7 +168,6 @@ sub _store_audio_info {
                 %$cached_meta,
                 type         => $display_type,
                 originalType => $display_type,
-                originaltype => $display_type,
             },
             Plugins::Twitch::Config::cache_ttl(),
         );
@@ -316,13 +314,9 @@ sub getMetadataFor {
         cover        => $meta->{cover},
         icon         => $meta->{cover},
         duration     => $is_vod && $song ? ($song->duration || undef) : undef,
-        # AAC is commonly variable-bitrate. Do not expose the previous
-        # segment-duration estimate as an exact technical property.
-        bitrate      => undef,
         samplerate   => $sample_rate,
         type         => $type,
         originalType => $type,
-        originaltype => $type,
         url          => $url,
     };
 }

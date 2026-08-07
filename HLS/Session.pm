@@ -78,10 +78,11 @@ sub _positive_number {
 }
 
 sub _positive_integer {
-    my ($value, $default) = @_;
+    my ($value, $default, $maximum) = @_;
     return $default unless defined $value
         && $value =~ /^\d+$/
-        && $value > 0;
+        && $value > 0
+        && (!defined $maximum || $value <= $maximum);
     return $value + 0;
 }
 
@@ -95,7 +96,7 @@ sub new {
             $args->{live_buffer_seconds}, DEFAULT_LIVE_BUFFER_SECONDS,
         ),
         live_initial_segments => _positive_integer(
-            $args->{live_initial_segments}, DEFAULT_LIVE_INITIAL_SEGMENTS,
+            $args->{live_initial_segments}, DEFAULT_LIVE_INITIAL_SEGMENTS, 10,
         ),
         log           => $args->{log},
         on_duration   => $args->{on_duration} || sub {},

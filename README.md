@@ -297,7 +297,7 @@ The plugin initializes five LMS preferences in the `plugin.twitch` namespace:
 | `client_id` | `kimne78kx3ncx6brgo4mv6wki5h1ko` | Client ID sent to Twitch GraphQL requests. |
 | `cache_ttl` | `3600` | Lifetime in seconds for VOD metadata and media-URL associations. |
 | `live_cache_ttl` | `300` | Refresh interval in seconds for live-channel metadata; retained values use `cache_ttl`. |
-| `live_initial_segments` | `5` | Number of segments retained from the initial live playlist window. Valid range: 1–20. |
+| `live_initial_segments` | `5` | Number of segments retained from the initial live playlist window. Valid range: 1–10. |
 | `live_buffer_seconds` | `12` | Target duration in seconds for downloaded live audio. Valid range: 1–120; decimal values are accepted. |
 
 Invalid or out-of-range values fall back to their defaults. There is currently no dedicated settings page; preferences must be changed through LMS configuration mechanisms or by modifying the plugin defaults.

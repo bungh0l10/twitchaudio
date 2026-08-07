@@ -52,7 +52,7 @@ sub live_initial_segments {
         unless defined $segments
             && $segments =~ /^\d+$/
             && $segments >= 1
-            && $segments <= 20;
+            && $segments <= 10;
 
     return $segments;
 }

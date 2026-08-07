@@ -131,8 +131,7 @@ sub _store_audio_info {
 
     $song->pluginData('twitchAudioInfo', $audio_info);
 
-    # Keep LMS' track properties in sync as well. Material Skin can obtain
-    # technical metadata from either getMetadataFor() or the active track.
+    # Keep LMS' track properties in sync with the detected stream.
     for my $method (qw(track currentTrack)) {
         next unless $song->can($method);
         my $track = $song->$method or next;
@@ -140,38 +139,14 @@ sub _store_audio_info {
             if $audio_info->{sample_rate} && $track->can('samplerate');
     }
 
-    my $client = $song->master;
-    my $display_type = _audio_type($client, $audio_info);
-    my $song_meta = $song->pluginData('wmaMeta');
-    if (ref $song_meta eq 'HASH') {
-        $song->pluginData('wmaMeta', {
-            %$song_meta,
-            type         => $display_type,
-            originalType => $display_type,
-        });
-    }
-
     my ($type, $id) = _twitch_media_id($song);
     return unless $type && $id;
     $id = lc $id if $type eq 'live';
-    my $cache = Slim::Utils::Cache->new;
-    $cache->set(
+    Slim::Utils::Cache->new->set(
         "twitch:audio-info:$type:$id",
         $audio_info,
         Plugins::Twitch::Config::cache_ttl(),
     );
-    my $cached_meta = $cache->get("twitch:$type:$id");
-    if (ref $cached_meta eq 'HASH') {
-        $cache->set(
-            "twitch:$type:$id",
-            {
-                %$cached_meta,
-                type         => $display_type,
-                originalType => $display_type,
-            },
-            Plugins::Twitch::Config::cache_ttl(),
-        );
-    }
     return;
 }
 
@@ -270,14 +245,6 @@ sub _notify_metadata {
     );
 }
 
-sub _audio_type {
-    # Material Skin obtains the service from the track URL/protocol, the
-    # codec from type and the sample rate from samplerate. Keep these fields
-    # separate; commas and parenthesized values are not parsed as extra
-    # technical fields. The exact profile remains in twitchAudioInfo.
-    return 'aac';
-}
-
 sub getMetadataFor {
     my ($class, $client, $url, undef, $song) = @_;
     $song ||= _song_for_url($client, $url);
@@ -286,11 +253,9 @@ sub getMetadataFor {
     my ($url_type) = _twitch_media_id($song, $url);
     my $is_vod = $url_type ? $url_type eq 'vod' : _is_vod_song($song);
     my $audio_info = _restore_audio_info($song, $url);
-    my $type = _audio_type($client, $audio_info);
     my $sample_rate = ref $audio_info eq 'HASH'
         ? $audio_info->{sample_rate}
         : undef;
-
     return {
         title        => $meta->{title},
         artist       => $meta->{artist},
@@ -298,8 +263,7 @@ sub getMetadataFor {
         icon         => $meta->{cover},
         duration     => $is_vod && $song ? ($song->duration || undef) : undef,
         samplerate   => $sample_rate,
-        type         => $type,
-        originalType => $type,
+        type         => 'aac',
         url          => $url,
     };
 }
@@ -312,9 +276,7 @@ sub scanStream {
     $track->content_type('aac');
     $track->update;
 
-    if (my $song = $args->{song}) {
-        $song->handler($class);
-    }
+    $args->{song}->handler($class) if $args->{song};
 
     my $cb = $args->{cb} || sub {};
     return $cb->($track, undef, @{ $args->{pt} || [] });
@@ -365,6 +327,10 @@ sub _start_session {
         playlist_url => ${*$self}{playlist_url},
         is_vod       => $is_vod,
         seek_time    => $seek_time,
+        live_initial_segments =>
+            Plugins::Twitch::Config::live_initial_segments(),
+        live_buffer_seconds =>
+            Plugins::Twitch::Config::live_buffer_seconds(),
         log          => $log,
         on_duration  => sub {
             my ($duration) = @_;

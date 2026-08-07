@@ -164,10 +164,12 @@ An `EVENT` playlist with a known Twitch total duration is considered seekable. I
 - bounds live-stream deduplication history to the current playlist window plus ten preceding media sequences;
 - detects a media-sequence restart and resets extractor state;
 - resets MPEG-TS and fragmented MP4 extraction state at HLS discontinuities and reloads MP4 initialization data;
-- starts a live stream near the live edge by retaining only the final three initially visible segments;
+- starts a live stream near the live edge by retaining a configurable number
+  of initially visible segments (five by default);
 - downloads up to three media segments concurrently and extracts them in
   playlist order;
-- targets eight seconds of buffered live audio and thirty seconds for VODs,
+- targets a configurable live-audio buffer (twelve seconds by default) and
+  thirty seconds for VODs,
   independently of the number of concurrent requests;
 - downloads fragmented MP4 initialization segments when `EXT-X-MAP` changes;
 - retries playlist, initialization and media-segment failures after three seconds;
@@ -288,15 +290,17 @@ The plugin does not attempt to recover, replace or bypass audio muted by Twitch.
 
 ## Configuration
 
-The plugin initializes three LMS preferences in the `plugin.twitch` namespace:
+The plugin initializes five LMS preferences in the `plugin.twitch` namespace:
 
 | Preference | Default | Purpose |
 | --- | ---: | --- |
 | `client_id` | `kimne78kx3ncx6brgo4mv6wki5h1ko` | Client ID sent to Twitch GraphQL requests. |
 | `cache_ttl` | `3600` | Lifetime in seconds for VOD metadata and media-URL associations. |
 | `live_cache_ttl` | `300` | Refresh interval in seconds for live-channel metadata; retained values use `cache_ttl`. |
+| `live_initial_segments` | `5` | Number of segments retained from the initial live playlist window. Valid range: 1–10. |
+| `live_buffer_seconds` | `12` | Target duration in seconds for downloaded live audio. Valid range: 1–120; decimal values are accepted. |
 
-Invalid, empty or non-positive values fall back to their defaults. There is currently no dedicated settings page; preferences must be changed through LMS configuration mechanisms or by modifying the plugin defaults.
+Invalid or out-of-range values fall back to their defaults. There is currently no dedicated settings page; preferences must be changed through LMS configuration mechanisms or by modifying the plugin defaults.
 
 The VOD standby-resume and detected audio-information caches use `cache_ttl`.
 

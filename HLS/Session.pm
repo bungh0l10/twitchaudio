@@ -15,7 +15,8 @@ use Plugins::Twitch::HLS::Extractor::MP4AAC ();
 use constant {
     HTTP_TIMEOUT        => 20,
     MAX_CONCURRENT_REQUESTS => 3,
-    LIVE_BUFFER_SECONDS => 8,
+    DEFAULT_LIVE_BUFFER_SECONDS => 12,
+    DEFAULT_LIVE_INITIAL_SEGMENTS => 5,
     VOD_BUFFER_SECONDS  => 30,
     RETRY_DELAY         => 3,
     SEEN_HISTORY_MARGIN => 10,
@@ -68,12 +69,35 @@ sub _adts_offset_for_fraction {
     return $index < @offsets ? $offsets[$index] : length($aac);
 }
 
+sub _positive_number {
+    my ($value, $default) = @_;
+    return $default unless defined $value
+        && $value =~ /^\d+(?:\.\d+)?$/
+        && $value > 0;
+    return $value + 0;
+}
+
+sub _positive_integer {
+    my ($value, $default, $maximum) = @_;
+    return $default unless defined $value
+        && $value =~ /^\d+$/
+        && $value > 0
+        && (!defined $maximum || $value <= $maximum);
+    return $value + 0;
+}
+
 sub new {
     my ($class, $args) = @_;
     my $self = bless {
         playlist_url  => $args->{playlist_url},
         is_vod        => $args->{is_vod} ? 1 : 0,
         seek_time     => $args->{seek_time},
+        live_buffer_seconds => _positive_number(
+            $args->{live_buffer_seconds}, DEFAULT_LIVE_BUFFER_SECONDS,
+        ),
+        live_initial_segments => _positive_integer(
+            $args->{live_initial_segments}, DEFAULT_LIVE_INITIAL_SEGMENTS, 10,
+        ),
         log           => $args->{log},
         on_duration   => $args->{on_duration} || sub {},
         on_audio_info => $args->{on_audio_info} || sub {},
@@ -240,8 +264,11 @@ sub _apply_playlist {
         push @new, { %$segment, id => $id };
     }
 
-    if (!$self->{started} && !$self->{is_vod} && @new > 3) {
-        @new = splice @new, -3;
+    my $initial_segments = $self->{live_initial_segments};
+    if (!$self->{started} && !$self->{is_vod}
+        && @new > $initial_segments)
+    {
+        @new = splice @new, -$initial_segments;
     }
 
     if ($self->{is_vod}
@@ -329,7 +356,7 @@ sub _process_downloaded_segments {
 
     my $target = $self->{is_vod}
         ? VOD_BUFFER_SECONDS
-        : LIVE_BUFFER_SECONDS;
+        : $self->{live_buffer_seconds};
     return if $self->_buffered_seconds >= $target;
 
     for my $segment (@{ $self->{segments} }) {
@@ -435,7 +462,7 @@ sub _fetch_segments {
 
     my $target = $self->{is_vod}
         ? VOD_BUFFER_SECONDS
-        : LIVE_BUFFER_SECONDS;
+        : $self->{live_buffer_seconds};
     my $window_seconds = 0;
     my $active_requests = scalar grep { $_->{request} }
         @{ $self->{segments} };

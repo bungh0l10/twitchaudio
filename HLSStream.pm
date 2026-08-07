@@ -327,6 +327,10 @@ sub _start_session {
         playlist_url => ${*$self}{playlist_url},
         is_vod       => $is_vod,
         seek_time    => $seek_time,
+        live_initial_segments =>
+            Plugins::Twitch::Config::live_initial_segments(),
+        live_buffer_seconds =>
+            Plugins::Twitch::Config::live_buffer_seconds(),
         log          => $log,
         on_duration  => sub {
             my ($duration) = @_;

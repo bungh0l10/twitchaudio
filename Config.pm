@@ -6,9 +6,11 @@ use warnings;
 use Slim::Utils::Prefs qw(preferences);
 
 use constant {
-    DEFAULT_CACHE_TTL      => 3600,
-    DEFAULT_LIVE_CACHE_TTL => 300,
-    DEFAULT_CLIENT_ID      => 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+    DEFAULT_CACHE_TTL             => 3600,
+    DEFAULT_LIVE_CACHE_TTL        => 300,
+    DEFAULT_LIVE_INITIAL_SEGMENTS => 5,
+    DEFAULT_LIVE_BUFFER_SECONDS   => 12,
+    DEFAULT_CLIENT_ID             => 'kimne78kx3ncx6brgo4mv6wki5h1ko',
 };
 
 my $prefs = preferences('plugin.twitch');
@@ -17,6 +19,8 @@ sub init {
     $prefs->init({
         cache_ttl => DEFAULT_CACHE_TTL,
         live_cache_ttl => DEFAULT_LIVE_CACHE_TTL,
+        live_initial_segments => DEFAULT_LIVE_INITIAL_SEGMENTS,
+        live_buffer_seconds => DEFAULT_LIVE_BUFFER_SECONDS,
         client_id => DEFAULT_CLIENT_ID,
     });
 
@@ -39,6 +43,30 @@ sub cache_ttl {
         unless defined $ttl && $ttl =~ /^\d+$/ && $ttl > 0;
 
     return $ttl;
+}
+
+sub live_initial_segments {
+    my $segments = $prefs->get('live_initial_segments');
+
+    return DEFAULT_LIVE_INITIAL_SEGMENTS
+        unless defined $segments
+            && $segments =~ /^\d+$/
+            && $segments >= 1
+            && $segments <= 20;
+
+    return $segments;
+}
+
+sub live_buffer_seconds {
+    my $seconds = $prefs->get('live_buffer_seconds');
+
+    return DEFAULT_LIVE_BUFFER_SECONDS
+        unless defined $seconds
+            && $seconds =~ /^\d+(?:\.\d+)?$/
+            && $seconds >= 1
+            && $seconds <= 120;
+
+    return $seconds + 0;
 }
 
 sub client_id {

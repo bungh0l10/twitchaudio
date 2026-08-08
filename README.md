@@ -185,6 +185,13 @@ an empty transcoding pipe and could leave playback stuck after a startup delay,
 retry or buffer underrun. `EINTR` keeps LMS's safe periodic retry path active;
 an empty string remains reserved for a genuine end of stream.
 
+When an asynchronously downloaded segment has been converted to ordered AAC,
+the session also schedules a coalesced LMS source wakeup. This lets LMS drain
+new audio immediately instead of waiting up to the next periodic `EINTR` retry.
+The wakeup runs on the LMS event loop, handles synchronized players through the
+normal source callback path and is cancelled when the stream closes. `EINTR`
+remains the fallback if no readable callback is registered or a wakeup is lost.
+
 ## Supported HLS media containers
 
 ### MPEG-TS with AAC

@@ -101,6 +101,7 @@ sub new {
         log           => $args->{log},
         on_duration   => $args->{on_duration} || sub {},
         on_audio_info => $args->{on_audio_info} || sub {},
+        on_data       => $args->{on_data} || sub {},
         on_seek       => $args->{on_seek} || sub {},
         segments      => [],
         # Live and reloadable EVENT playlists allocate this lazily for
@@ -401,6 +402,7 @@ sub _process_downloaded_segments {
             delete $segment->{initial_fraction};
         }
         $self->_report_audio_info($segment->{aac});
+        $self->{on_data}->() if length($segment->{aac});
 
         my $continuity = '';
         if (($segment->{container} || '') eq 'mpeg-ts') {

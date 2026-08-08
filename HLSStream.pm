@@ -10,10 +10,12 @@ use bytes;
 use base qw(IO::Handle);
 
 use Slim::Player::ProtocolHandlers;
+use Slim::Player::Source ();
 use Slim::Control::Request ();
 use Slim::Utils::Cache;
 use Slim::Utils::Errno;
 use Slim::Utils::Log qw(logger);
+use Slim::Utils::Timers ();
 use Time::HiRes qw(time);
 
 use Plugins::Twitch::Config ();
@@ -341,6 +343,9 @@ sub _start_session {
             _store_audio_info($song, $audio_info);
             _notify_metadata($song);
         },
+        on_data => sub {
+            $self->_schedule_wakeup;
+        },
         on_seek => sub {
             my ($offset) = @_;
             _set_progress_offset($song, $offset);
@@ -350,8 +355,44 @@ sub _start_session {
     return;
 }
 
+sub _schedule_wakeup {
+    my ($self) = @_;
+    return if ${*$self}{closed} || ${*$self}{wakeup_pending};
+
+    ${*$self}{wakeup_pending} = 1;
+    Slim::Utils::Timers::setTimer(
+        $self,
+        time(),
+        \&_run_wakeup,
+    );
+    return;
+}
+
+sub _run_wakeup {
+    my ($self) = @_;
+    delete ${*$self}{wakeup_pending};
+    return if ${*$self}{closed} || !${*$self}{session};
+
+    my $song = ${*$self}{song} or return;
+    my $client = $song->master or return;
+    my $controller = $client->can('controller')
+        ? $client->controller
+        : undef;
+    my $master = $controller && $controller->can('master')
+        ? ($controller->master || $client)
+        : $client;
+
+    # Use LMS' normal source wakeup path so synchronized players and the
+    # registered stream-readable callback are handled exactly as they are for
+    # a readable socket.  The timer keeps this out of the HTTP callback stack.
+    Slim::Player::Source::_wakeupOnReadable(undef, $master);
+    return;
+}
+
 sub close {
     my ($self) = @_;
+    Slim::Utils::Timers::killTimers($self, \&_run_wakeup);
+    delete ${*$self}{wakeup_pending};
     if (${*$self}{is_vod} && ${*$self}{session}) {
         my $position = ${*$self}{session}->position;
         if ($position > 0) {

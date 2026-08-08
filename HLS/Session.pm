@@ -15,8 +15,9 @@ use Plugins::Twitch::HLS::Extractor::MP4AAC ();
 use constant {
     HTTP_TIMEOUT        => 20,
     MAX_CONCURRENT_REQUESTS => 3,
-    DEFAULT_LIVE_BUFFER_SECONDS => 12,
-    DEFAULT_LIVE_INITIAL_SEGMENTS => 5,
+    DEFAULT_LIVE_BUFFER_SECONDS => 10,
+    DEFAULT_LIVE_START_BUFFER_SECONDS => 5,
+    DEFAULT_LIVE_INITIAL_SEGMENTS => 6,
     VOD_BUFFER_SECONDS  => 30,
     RETRY_DELAY         => 3,
     SEEN_HISTORY_MARGIN => 10,
@@ -88,13 +89,22 @@ sub _positive_integer {
 
 sub new {
     my ($class, $args) = @_;
+    my $live_buffer_seconds = _positive_number(
+        $args->{live_buffer_seconds}, DEFAULT_LIVE_BUFFER_SECONDS,
+    );
+    my $live_start_buffer_seconds = _positive_number(
+        $args->{live_start_buffer_seconds},
+        DEFAULT_LIVE_START_BUFFER_SECONDS,
+    );
+    $live_start_buffer_seconds = $live_buffer_seconds
+        if $live_start_buffer_seconds > $live_buffer_seconds;
+
     my $self = bless {
         playlist_url  => $args->{playlist_url},
         is_vod        => $args->{is_vod} ? 1 : 0,
         seek_time     => $args->{seek_time},
-        live_buffer_seconds => _positive_number(
-            $args->{live_buffer_seconds}, DEFAULT_LIVE_BUFFER_SECONDS,
-        ),
+        live_buffer_seconds => $live_buffer_seconds,
+        live_start_buffer_seconds => $live_start_buffer_seconds,
         live_initial_segments => _positive_integer(
             $args->{live_initial_segments}, DEFAULT_LIVE_INITIAL_SEGMENTS, 10,
         ),
@@ -266,11 +276,8 @@ sub _apply_playlist {
         push @new, { %$segment, id => $id };
     }
 
-    my $initial_segments = $self->{live_initial_segments};
-    if (!$self->{started} && !$self->{is_vod}
-        && @new > $initial_segments)
-    {
-        @new = splice @new, -$initial_segments;
+    if (!$self->{started} && !$self->{is_vod}) {
+        @new = $self->_initial_live_segments(@new);
     }
 
     if ($self->{is_vod}
@@ -320,6 +327,26 @@ sub _apply_playlist {
         'Twitch HLS playlist: %d queued segment(s), %s',
         scalar(@new), $self->{complete} ? 'complete' : 'reloadable',
     ));
+}
+
+sub _initial_live_segments {
+    my ($self, @segments) = @_;
+    my $maximum = $self->{live_initial_segments};
+    my $target = $self->{live_buffer_seconds};
+    my (@selected, $seconds);
+
+    while (@segments && @selected < $maximum) {
+        my $segment = pop @segments;
+        unshift @selected, $segment;
+        $seconds += $segment->{duration} || 0;
+        last if $seconds >= $target;
+    }
+
+    $self->{log}->debug(sprintf(
+        'Twitch HLS initial live window: %d segment(s), %.3f / %.3f seconds',
+        scalar(@selected), $seconds || 0, $target,
+    ));
+    return @selected;
 }
 
 sub _fetch_init {
@@ -583,14 +610,14 @@ sub read {
 
         my $buffered = $self->_buffered_seconds;
         return undef
-            if $buffered < $self->{live_buffer_seconds}
+            if $buffered < $self->{live_start_buffer_seconds}
                 && !$self->{complete};
 
         $self->{prebuffer_ready} = 1;
         $self->{log}->info(sprintf(
             'Twitch HLS live prebuffer ready: %.1f / %.1f seconds',
             $buffered,
-            $self->{live_buffer_seconds},
+            $self->{live_start_buffer_seconds},
         ));
     }
 

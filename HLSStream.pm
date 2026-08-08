@@ -326,6 +326,8 @@ sub _start_session {
         seek_time    => $seek_time,
         live_initial_segments =>
             Plugins::Twitch::Config::live_initial_segments(),
+        live_start_buffer_seconds =>
+            Plugins::Twitch::Config::live_start_buffer_seconds(),
         live_buffer_seconds =>
             Plugins::Twitch::Config::live_buffer_seconds(),
         log          => $log,

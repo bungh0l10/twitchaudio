@@ -164,14 +164,15 @@ An `EVENT` playlist with a known Twitch total duration is considered seekable. I
 - bounds live-stream deduplication history to the current playlist window plus ten preceding media sequences;
 - detects a media-sequence restart and resets extractor state;
 - resets MPEG-TS and fragmented MP4 extraction state at HLS discontinuities and reloads MP4 initialization data;
-- starts a live stream near the live edge by retaining a configurable number
-  of initially visible segments (five by default);
+- starts near the live edge by retaining the smallest suffix of the initial
+  playlist which covers the live buffer target, subject to a configurable
+  maximum of six segments;
 - holds the first live audio bytes until the configured live buffer target is
   present as fully downloaded, ordered AAC, creating a real startup jitter
   buffer instead of merely limiting how far downloads run ahead;
 - downloads up to three media segments concurrently and extracts them in
   playlist order;
-- targets a configurable live-audio buffer (twelve seconds by default) and
+- targets a configurable live-audio buffer (ten seconds by default) and
   thirty seconds for VODs,
   independently of the number of concurrent requests;
 - downloads fragmented MP4 initialization segments when `EXT-X-MAP` changes;
@@ -195,7 +196,9 @@ The wakeup runs on the LMS event loop, handles synchronized players through the
 normal source callback path and is cancelled when the stream closes. `EINTR`
 remains the fallback if no readable callback is registered or a wakeup is lost.
 For live playback, these wakeups begin draining audio only after the startup
-jitter buffer reaches `live_buffer_seconds` (twelve seconds by default). A live
+jitter buffer reaches `live_start_buffer_seconds` (five seconds by default).
+Downloads continue concurrently towards `live_buffer_seconds` (ten seconds by
+default). A live
 playlist which ends before reaching the target is released immediately once it
 is complete, so a short broadcast cannot wait forever. VOD playback is not
 subject to this live startup gate.
@@ -312,15 +315,16 @@ The plugin does not attempt to recover, replace or bypass audio muted by Twitch.
 
 ## Configuration
 
-The plugin initializes five LMS preferences in the `plugin.twitch` namespace:
+The plugin initializes six LMS preferences in the `plugin.twitch` namespace:
 
 | Preference | Default | Purpose |
 | --- | ---: | --- |
 | `client_id` | `kimne78kx3ncx6brgo4mv6wki5h1ko` | Client ID sent to Twitch GraphQL requests. |
 | `cache_ttl` | `3600` | Lifetime in seconds for VOD metadata and media-URL associations. |
 | `live_cache_ttl` | `300` | Refresh interval in seconds for live-channel metadata; retained values use `cache_ttl`. |
-| `live_initial_segments` | `5` | Number of segments retained from the initial live playlist window. Valid range: 1–10. |
-| `live_buffer_seconds` | `12` | Target duration in seconds for downloaded live audio. Valid range: 1–120; decimal values are accepted. |
+| `live_initial_segments` | `6` | Maximum number of segments retained from the initial live playlist. The smallest suffix covering `live_buffer_seconds` is selected. Valid range: 1–10. |
+| `live_start_buffer_seconds` | `5` | Ordered AAC required before live playback starts. Valid range: 1–120; decimal values are accepted and the effective value is capped at `live_buffer_seconds`. |
+| `live_buffer_seconds` | `10` | Target duration for downloaded live audio after playback starts. Valid range: 1–120; decimal values are accepted. |
 
 Invalid or out-of-range values fall back to their defaults. There is currently no dedicated settings page; preferences must be changed through LMS configuration mechanisms or by modifying the plugin defaults.
 

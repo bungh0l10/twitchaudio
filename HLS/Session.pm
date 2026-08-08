@@ -112,6 +112,7 @@ sub new {
         started       => 0,
         next_playlist => 0,
         position      => $args->{seek_time} || 0,
+        prebuffer_ready => $args->{is_vod} ? 1 : 0,
     }, $class;
 
     $self->_reset_extractors;
@@ -572,6 +573,26 @@ sub _report_audio_info {
 sub read {
     my ($self, $max_bytes) = @_;
     return '' if $self->{closed};
+
+    if (!$self->{prebuffer_ready}) {
+        $self->_fetch_segments;
+        $self->_fetch_playlist
+            if !$self->{complete}
+                && !$self->{playlist_request}
+                && time() >= $self->{next_playlist};
+
+        my $buffered = $self->_buffered_seconds;
+        return undef
+            if $buffered < $self->{live_buffer_seconds}
+                && !$self->{complete};
+
+        $self->{prebuffer_ready} = 1;
+        $self->{log}->info(sprintf(
+            'Twitch HLS live prebuffer ready: %.1f / %.1f seconds',
+            $buffered,
+            $self->{live_buffer_seconds},
+        ));
+    }
 
     while (@{ $self->{segments} }
         && defined $self->{segments}[0]{aac})

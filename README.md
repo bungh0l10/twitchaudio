@@ -166,6 +166,9 @@ An `EVENT` playlist with a known Twitch total duration is considered seekable. I
 - resets MPEG-TS and fragmented MP4 extraction state at HLS discontinuities and reloads MP4 initialization data;
 - starts a live stream near the live edge by retaining a configurable number
   of initially visible segments (five by default);
+- holds the first live audio bytes until the configured live buffer target is
+  present as fully downloaded, ordered AAC, creating a real startup jitter
+  buffer instead of merely limiting how far downloads run ahead;
 - downloads up to three media segments concurrently and extracts them in
   playlist order;
 - targets a configurable live-audio buffer (twelve seconds by default) and
@@ -191,6 +194,11 @@ new audio immediately instead of waiting up to the next periodic `EINTR` retry.
 The wakeup runs on the LMS event loop, handles synchronized players through the
 normal source callback path and is cancelled when the stream closes. `EINTR`
 remains the fallback if no readable callback is registered or a wakeup is lost.
+For live playback, these wakeups begin draining audio only after the startup
+jitter buffer reaches `live_buffer_seconds` (twelve seconds by default). A live
+playlist which ends before reaching the target is released immediately once it
+is complete, so a short broadcast cannot wait forever. VOD playback is not
+subject to this live startup gate.
 
 ## Supported HLS media containers
 

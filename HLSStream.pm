@@ -14,7 +14,6 @@ use Slim::Control::Request ();
 use Slim::Utils::Cache;
 use Slim::Utils::Errno;
 use Slim::Utils::Log qw(logger);
-use Slim::Utils::Versions ();
 use Time::HiRes qw(time);
 
 use Plugins::Twitch::Config ();
@@ -24,10 +23,6 @@ my $log = logger('plugin.twitch');
 
 Slim::Player::ProtocolHandlers->registerHandler('twitchhls', __PACKAGE__);
 
-# LMS releases before 7.9.1 retry an IO handler only for EINTR. Newer LMS
-# releases correctly use EWOULDBLOCK for an asynchronously filled handle.
-use constant IO_SELECT_FIXED =>
-    Slim::Utils::Versions->compareVersions($::VERSION, '7.9.1') >= 0;
 use constant RESUME_CACHE_INTERVAL => 3;
 
 sub isRemote         { 1 }
@@ -399,7 +394,12 @@ sub sysread {
         return length($bytes);
     }
 
-    $! = IO_SELECT_FIXED ? EWOULDBLOCK : EINTR;
+    # This handle is a proxy for asynchronous HTTP callbacks, not a socket
+    # which will itself become readable.  EWOULDBLOCK makes LMS register the
+    # proxy (or an empty transcoding pipe) with select(), which can leave the
+    # stream asleep after the callback fills our buffer.  EINTR keeps the
+    # normal LMS retry path active on every supported LMS release.
+    $! = EINTR;
     return undef;
 }
 

@@ -176,7 +176,14 @@ An `EVENT` playlist with a known Twitch total duration is considered seekable. I
 - reads the exact AAC profile and sample rate from the first ADTS frame;
 - supplies data through non-blocking reads to the LMS protocol adapter.
 
-Playlist and segment HTTP requests use a twenty-second timeout. While a request is pending and no audio is available, the adapter reports `EWOULDBLOCK` on LMS versions with the corrected asynchronous I/O behavior and `EINTR` on older versions.
+Playlist and segment HTTP requests use a twenty-second timeout. While a request
+is pending and no audio is available, the adapter reports `EINTR` on every
+supported LMS version. The stream handle is a proxy filled by asynchronous HTTP
+callbacks rather than a socket which becomes readable itself. In particular,
+using `EWOULDBLOCK` here would make LMS 9.2 wait in `select()` for the proxy or
+an empty transcoding pipe and could leave playback stuck after a startup delay,
+retry or buffer underrun. `EINTR` keeps LMS's safe periodic retry path active;
+an empty string remains reserved for a genuine end of stream.
 
 ## Supported HLS media containers
 

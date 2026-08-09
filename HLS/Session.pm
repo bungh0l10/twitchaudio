@@ -5,6 +5,7 @@ use warnings;
 use bytes;
 
 use Slim::Networking::SimpleAsyncHTTP;
+use Slim::Utils::Timers ();
 use Time::HiRes qw(time);
 use URI;
 
@@ -138,8 +139,35 @@ sub new {
 sub close {
     my ($self) = @_;
     $self->{closed} = 1;
+    Slim::Utils::Timers::killTimers($self, \&_run_playlist_refresh);
+    delete $self->{playlist_timer_pending};
     delete @$self{qw(playlist_request init_request)};
     delete $_->{request} for @{ $self->{segments} };
+    return;
+}
+
+sub _schedule_playlist_refresh {
+    my ($self, $at) = @_;
+    return if $self->{closed} || $self->{is_vod} || $self->{complete};
+
+    $at = time() + RETRY_DELAY unless defined $at;
+    Slim::Utils::Timers::killTimers($self, \&_run_playlist_refresh);
+    $self->{playlist_timer_pending} = 1;
+    Slim::Utils::Timers::setTimer(
+        $self,
+        $at,
+        \&_run_playlist_refresh,
+    );
+    return;
+}
+
+sub _run_playlist_refresh {
+    my ($self) = @_;
+    delete $self->{playlist_timer_pending};
+    return if $self->{closed} || $self->{is_vod} || $self->{complete};
+    return if $self->{playlist_request};
+
+    $self->_fetch_playlist;
     return;
 }
 
@@ -239,6 +267,7 @@ sub _fetch_playlist {
         unless ($playlist) {
             $self->{log}->error('Twitch HLS playlist is invalid');
             $self->{next_playlist} = time() + RETRY_DELAY;
+            $self->_schedule_playlist_refresh($self->{next_playlist});
             return;
         }
         $self->_apply_playlist($playlist);
@@ -247,6 +276,7 @@ sub _fetch_playlist {
         my ($error) = @_;
         delete $self->{playlist_request};
         $self->{next_playlist} = time() + RETRY_DELAY;
+        $self->_schedule_playlist_refresh($self->{next_playlist});
         $self->{log}->error("Twitch HLS playlist request failed: $error");
     });
 }
@@ -327,6 +357,12 @@ sub _apply_playlist {
         : $playlist->endlist;
     $self->{next_playlist} = time() + $playlist->reload_after
         unless $self->{complete};
+    if ($self->{complete}) {
+        Slim::Utils::Timers::killTimers($self, \&_run_playlist_refresh);
+        delete $self->{playlist_timer_pending};
+    } else {
+        $self->_schedule_playlist_refresh($self->{next_playlist});
+    }
 
     $self->{log}->debug(sprintf(
         'Twitch HLS playlist: %d queued segment(s), %s',

@@ -157,7 +157,8 @@ An `EVENT` playlist with a known Twitch total duration is considered seekable. I
 
 `HLS/Session.pm` owns network requests and stream state. It:
 
-- reloads media playlists shortly before their target duration expires;
+- reloads live media playlists on a dedicated LMS timer, independently of
+  stream reads and player backpressure;
 - deduplicates segments by playlist epoch and media sequence;
 - skips the deduplication hash for complete VOD playlists, which cannot
   produce overlapping reload windows;
@@ -202,6 +203,11 @@ default). A live
 playlist which ends before reaching the target is released immediately once it
 is complete, so a short broadcast cannot wait forever. VOD playback is not
 subject to this live startup gate.
+
+Live playlist refreshes also run on the LMS event loop, but use their own timer.
+Consequently, a full player input buffer cannot suppress playlist updates when
+LMS temporarily stops reading from the plugin stream. The refresh check in the
+stream read path remains as a fallback.
 
 ## Supported HLS media containers
 

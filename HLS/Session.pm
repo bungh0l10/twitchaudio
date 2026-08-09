@@ -14,7 +14,7 @@ use Plugins::Twitch::HLS::Extractor::MP4AAC ();
 
 use constant {
     HTTP_TIMEOUT        => 20,
-    MAX_CONCURRENT_REQUESTS => 3,
+    DEFAULT_MAX_CONCURRENT_REQUESTS => 6,
     DEFAULT_LIVE_BUFFER_SECONDS => 10,
     DEFAULT_LIVE_START_BUFFER_SECONDS => 5,
     DEFAULT_LIVE_INITIAL_SEGMENTS => 6,
@@ -107,6 +107,11 @@ sub new {
         live_start_buffer_seconds => $live_start_buffer_seconds,
         live_initial_segments => _positive_integer(
             $args->{live_initial_segments}, DEFAULT_LIVE_INITIAL_SEGMENTS, 10,
+        ),
+        max_concurrent_requests => _positive_integer(
+            $args->{max_concurrent_requests},
+            DEFAULT_MAX_CONCURRENT_REQUESTS,
+            12,
         ),
         log           => $args->{log},
         on_duration   => $args->{on_duration} || sub {},
@@ -516,7 +521,7 @@ sub _fetch_segments {
         }
 
         $window_seconds += $duration;
-        next if $active_requests >= MAX_CONCURRENT_REQUESTS;
+        next if $active_requests >= $self->{max_concurrent_requests};
 
         $segment->{request} = $self->_request($segment->{url}, sub {
             my ($media) = @_;

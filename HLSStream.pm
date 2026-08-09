@@ -330,6 +330,8 @@ sub _start_session {
             Plugins::Twitch::Config::live_start_buffer_seconds(),
         live_buffer_seconds =>
             Plugins::Twitch::Config::live_buffer_seconds(),
+        max_concurrent_requests =>
+            Plugins::Twitch::Config::max_concurrent_requests(),
         log          => $log,
         on_duration  => sub {
             my ($duration) = @_;

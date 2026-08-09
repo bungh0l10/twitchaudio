@@ -170,7 +170,7 @@ An `EVENT` playlist with a known Twitch total duration is considered seekable. I
 - holds the first live audio bytes until the configured live buffer target is
   present as fully downloaded, ordered AAC, creating a real startup jitter
   buffer instead of merely limiting how far downloads run ahead;
-- downloads up to three media segments concurrently and extracts them in
+- downloads up to six media segments concurrently and extracts them in
   playlist order;
 - targets a configurable live-audio buffer (ten seconds by default) and
   thirty seconds for VODs,
@@ -315,7 +315,7 @@ The plugin does not attempt to recover, replace or bypass audio muted by Twitch.
 
 ## Configuration
 
-The plugin initializes six LMS preferences in the `plugin.twitch` namespace:
+The plugin initializes seven LMS preferences in the `plugin.twitch` namespace:
 
 | Preference | Default | Purpose |
 | --- | ---: | --- |
@@ -325,6 +325,7 @@ The plugin initializes six LMS preferences in the `plugin.twitch` namespace:
 | `live_initial_segments` | `6` | Maximum number of segments retained from the initial live playlist. The smallest suffix covering `live_buffer_seconds` is selected. Valid range: 1–10. |
 | `live_start_buffer_seconds` | `5` | Ordered AAC required before live playback starts. Valid range: 1–120; decimal values are accepted and the effective value is capped at `live_buffer_seconds`. |
 | `live_buffer_seconds` | `10` | Target duration for downloaded live audio after playback starts. Valid range: 1–120; decimal values are accepted. |
+| `max_concurrent_requests` | `6` | Maximum number of concurrent HLS media-segment downloads for live streams and VODs. Valid range: 1–12. |
 
 Invalid or out-of-range values fall back to their defaults. There is currently no dedicated settings page; preferences must be changed through LMS configuration mechanisms or by modifying the plugin defaults.
 

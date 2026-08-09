@@ -11,6 +11,7 @@ use constant {
     DEFAULT_LIVE_INITIAL_SEGMENTS => 6,
     DEFAULT_LIVE_START_BUFFER_SECONDS => 5,
     DEFAULT_LIVE_BUFFER_SECONDS   => 10,
+    DEFAULT_MAX_CONCURRENT_REQUESTS => 6,
     DEFAULT_CLIENT_ID             => 'kimne78kx3ncx6brgo4mv6wki5h1ko',
 };
 
@@ -23,6 +24,7 @@ sub init {
         live_initial_segments => DEFAULT_LIVE_INITIAL_SEGMENTS,
         live_start_buffer_seconds => DEFAULT_LIVE_START_BUFFER_SECONDS,
         live_buffer_seconds => DEFAULT_LIVE_BUFFER_SECONDS,
+        max_concurrent_requests => DEFAULT_MAX_CONCURRENT_REQUESTS,
         client_id => DEFAULT_CLIENT_ID,
     });
 
@@ -81,6 +83,18 @@ sub live_start_buffer_seconds {
             && $seconds <= 120;
 
     return $seconds + 0;
+}
+
+sub max_concurrent_requests {
+    my $requests = $prefs->get('max_concurrent_requests');
+
+    return DEFAULT_MAX_CONCURRENT_REQUESTS
+        unless defined $requests
+            && $requests =~ /^\d+$/
+            && $requests >= 1
+            && $requests <= 12;
+
+    return $requests + 0;
 }
 
 sub client_id {

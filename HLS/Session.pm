@@ -5,7 +5,6 @@ use warnings;
 use bytes;
 
 use Slim::Networking::SimpleAsyncHTTP;
-use Slim::Utils::Timers ();
 use Time::HiRes qw(time);
 use URI;
 
@@ -15,7 +14,7 @@ use Plugins::Twitch::HLS::Extractor::MP4AAC ();
 
 use constant {
     HTTP_TIMEOUT        => 20,
-    DEFAULT_MAX_CONCURRENT_REQUESTS => 6,
+    MAX_CONCURRENT_REQUESTS => 3,
     DEFAULT_LIVE_BUFFER_SECONDS => 10,
     DEFAULT_LIVE_START_BUFFER_SECONDS => 5,
     DEFAULT_LIVE_INITIAL_SEGMENTS => 6,
@@ -109,11 +108,6 @@ sub new {
         live_initial_segments => _positive_integer(
             $args->{live_initial_segments}, DEFAULT_LIVE_INITIAL_SEGMENTS, 10,
         ),
-        max_concurrent_requests => _positive_integer(
-            $args->{max_concurrent_requests},
-            DEFAULT_MAX_CONCURRENT_REQUESTS,
-            12,
-        ),
         log           => $args->{log},
         on_duration   => $args->{on_duration} || sub {},
         on_audio_info => $args->{on_audio_info} || sub {},
@@ -139,35 +133,8 @@ sub new {
 sub close {
     my ($self) = @_;
     $self->{closed} = 1;
-    Slim::Utils::Timers::killTimers($self, \&_run_playlist_refresh);
-    delete $self->{playlist_timer_pending};
     delete @$self{qw(playlist_request init_request)};
     delete $_->{request} for @{ $self->{segments} };
-    return;
-}
-
-sub _schedule_playlist_refresh {
-    my ($self, $at) = @_;
-    return if $self->{closed} || $self->{is_vod} || $self->{complete};
-
-    $at = time() + RETRY_DELAY unless defined $at;
-    Slim::Utils::Timers::killTimers($self, \&_run_playlist_refresh);
-    $self->{playlist_timer_pending} = 1;
-    Slim::Utils::Timers::setTimer(
-        $self,
-        $at,
-        \&_run_playlist_refresh,
-    );
-    return;
-}
-
-sub _run_playlist_refresh {
-    my ($self) = @_;
-    delete $self->{playlist_timer_pending};
-    return if $self->{closed} || $self->{is_vod} || $self->{complete};
-    return if $self->{playlist_request};
-
-    $self->_fetch_playlist;
     return;
 }
 
@@ -267,7 +234,6 @@ sub _fetch_playlist {
         unless ($playlist) {
             $self->{log}->error('Twitch HLS playlist is invalid');
             $self->{next_playlist} = time() + RETRY_DELAY;
-            $self->_schedule_playlist_refresh($self->{next_playlist});
             return;
         }
         $self->_apply_playlist($playlist);
@@ -276,7 +242,6 @@ sub _fetch_playlist {
         my ($error) = @_;
         delete $self->{playlist_request};
         $self->{next_playlist} = time() + RETRY_DELAY;
-        $self->_schedule_playlist_refresh($self->{next_playlist});
         $self->{log}->error("Twitch HLS playlist request failed: $error");
     });
 }
@@ -357,12 +322,6 @@ sub _apply_playlist {
         : $playlist->endlist;
     $self->{next_playlist} = time() + $playlist->reload_after
         unless $self->{complete};
-    if ($self->{complete}) {
-        Slim::Utils::Timers::killTimers($self, \&_run_playlist_refresh);
-        delete $self->{playlist_timer_pending};
-    } else {
-        $self->_schedule_playlist_refresh($self->{next_playlist});
-    }
 
     $self->{log}->debug(sprintf(
         'Twitch HLS playlist: %d queued segment(s), %s',
@@ -557,7 +516,7 @@ sub _fetch_segments {
         }
 
         $window_seconds += $duration;
-        next if $active_requests >= $self->{max_concurrent_requests};
+        next if $active_requests >= MAX_CONCURRENT_REQUESTS;
 
         $segment->{request} = $self->_request($segment->{url}, sub {
             my ($media) = @_;

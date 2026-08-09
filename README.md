@@ -157,8 +157,7 @@ An `EVENT` playlist with a known Twitch total duration is considered seekable. I
 
 `HLS/Session.pm` owns network requests and stream state. It:
 
-- reloads live media playlists on a dedicated LMS timer, independently of
-  stream reads and player backpressure;
+- reloads media playlists shortly before their target duration expires;
 - deduplicates segments by playlist epoch and media sequence;
 - skips the deduplication hash for complete VOD playlists, which cannot
   produce overlapping reload windows;
@@ -171,7 +170,7 @@ An `EVENT` playlist with a known Twitch total duration is considered seekable. I
 - holds the first live audio bytes until the configured live buffer target is
   present as fully downloaded, ordered AAC, creating a real startup jitter
   buffer instead of merely limiting how far downloads run ahead;
-- downloads up to six media segments concurrently and extracts them in
+- downloads up to three media segments concurrently and extracts them in
   playlist order;
 - targets a configurable live-audio buffer (ten seconds by default) and
   thirty seconds for VODs,
@@ -203,11 +202,6 @@ default). A live
 playlist which ends before reaching the target is released immediately once it
 is complete, so a short broadcast cannot wait forever. VOD playback is not
 subject to this live startup gate.
-
-Live playlist refreshes also run on the LMS event loop, but use their own timer.
-Consequently, a full player input buffer cannot suppress playlist updates when
-LMS temporarily stops reading from the plugin stream. The refresh check in the
-stream read path remains as a fallback.
 
 ## Supported HLS media containers
 
@@ -321,7 +315,7 @@ The plugin does not attempt to recover, replace or bypass audio muted by Twitch.
 
 ## Configuration
 
-The plugin initializes seven LMS preferences in the `plugin.twitch` namespace:
+The plugin initializes six LMS preferences in the `plugin.twitch` namespace:
 
 | Preference | Default | Purpose |
 | --- | ---: | --- |
@@ -331,7 +325,6 @@ The plugin initializes seven LMS preferences in the `plugin.twitch` namespace:
 | `live_initial_segments` | `6` | Maximum number of segments retained from the initial live playlist. The smallest suffix covering `live_buffer_seconds` is selected. Valid range: 1–10. |
 | `live_start_buffer_seconds` | `5` | Ordered AAC required before live playback starts. Valid range: 1–120; decimal values are accepted and the effective value is capped at `live_buffer_seconds`. |
 | `live_buffer_seconds` | `10` | Target duration for downloaded live audio after playback starts. Valid range: 1–120; decimal values are accepted. |
-| `max_concurrent_requests` | `6` | Maximum number of concurrent HLS media-segment downloads for live streams and VODs. Valid range: 1–12. |
 
 Invalid or out-of-range values fall back to their defaults. There is currently no dedicated settings page; preferences must be changed through LMS configuration mechanisms or by modifying the plugin defaults.
 

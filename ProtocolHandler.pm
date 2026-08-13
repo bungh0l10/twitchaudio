@@ -75,19 +75,6 @@ sub _apply_song_metadata {
     return 1;
 }
 
-sub _set_hls_args {
-    my ($args) = @_;
-
-    @$args{qw(parser contentType streamformat noVideo)} = (
-        'Plugins::Twitch::HLSStream',
-        'audio/aac',
-        'aac',
-        1,
-    );
-
-    return;
-}
-
 sub _native_hls_url {
     my ($url) = @_;
     $url =~ s{^https:}{twitchhls:};
@@ -115,9 +102,7 @@ sub _song_for_media_id {
 
 sub canDirectStream { 0 }
 sub isAudio          { 1 }
-sub isRemote         { 1 }
 sub canSeek          { 0 }
-sub songBytes        { 0 }
 
 sub getMetadataFor {
     my ($class, $client, $url, $force, $song) = @_;
@@ -217,7 +202,6 @@ sub _scan_stream {
                 Plugins::Twitch::Config::cache_ttl(),
             );
         }
-        _set_hls_args($args);
         Slim::Utils::Scanner::Remote->scanURL($native_url, $args);
         _applyInitialMetadata($client, $media_id, $song);
 

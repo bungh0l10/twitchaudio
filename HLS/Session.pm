@@ -9,6 +9,7 @@ use Time::HiRes qw(time);
 use URI;
 
 use Plugins::Twitch::HLS::Playlist ();
+use Plugins::Twitch::HLS::URL ();
 use Plugins::Twitch::HLS::Extractor::MPEGTSAAC ();
 use Plugins::Twitch::HLS::Extractor::MP4AAC ();
 
@@ -113,6 +114,7 @@ sub new {
         on_audio_info => $args->{on_audio_info} || sub {},
         on_data       => $args->{on_data} || sub {},
         on_seek       => $args->{on_seek} || sub {},
+        refresh_playlist_url => $args->{refresh_playlist_url},
         segments      => [],
         # Live and reloadable EVENT playlists allocate this lazily for
         # deduplication. A complete VOD is consumed from one immutable
@@ -123,6 +125,7 @@ sub new {
         next_playlist => 0,
         position      => $args->{seek_time} || 0,
         prebuffer_ready => $args->{is_vod} ? 1 : 0,
+        url_generation => 0,
     }, $class;
 
     $self->_reset_extractors;
@@ -208,6 +211,16 @@ sub _request {
     my $http = Slim::Networking::SimpleAsyncHTTP->new(
         sub {
             my ($response) = @_;
+            my $code = $response && $response->can('code')
+                ? $response->code
+                : undef;
+            if (defined $code && ($code == 401 || $code == 403)) {
+                my $message = $response->can('mess')
+                    ? $response->mess
+                    : 'authorization failed';
+                $failure->("$code $message") unless $self->{closed};
+                return;
+            }
             $success->($response->content) unless $self->{closed};
         },
         sub {
@@ -222,13 +235,67 @@ sub _request {
     return $http;
 }
 
+sub _refresh_live_playlist_url {
+    my ($self, $error) = @_;
+    return 0 if $self->{closed}
+        || $self->{is_vod}
+        || ref $self->{refresh_playlist_url} ne 'CODE'
+        || !Plugins::Twitch::HLS::URL::is_authorization_error($error);
+    return 1 if $self->{playlist_refresh_request};
+
+    $self->{playlist_refresh_request} = 1;
+    $self->{log}->warn(
+        'Twitch HLS authorization expired; refreshing live playlist URL'
+    );
+
+    $self->{refresh_playlist_url}->(sub {
+        my ($url) = @_;
+        delete $self->{playlist_refresh_request};
+        return if $self->{closed};
+
+        my $uri = URI->new($url || '');
+        unless (lc($uri->scheme || '') eq 'https'
+            && defined $uri->host && length($uri->host))
+        {
+            $self->{next_playlist} = time() + RETRY_DELAY;
+            $self->{log}->error(
+                'Twitch HLS live playlist URL refresh failed'
+            );
+            return;
+        }
+
+        $self->{playlist_url} = $url;
+        $self->{url_generation}++;
+        $self->{epoch}++;
+        $self->{segments} = [];
+        $self->{seen} = {};
+        $self->{started} = 0;
+        $self->{complete} = 0;
+        $self->{prebuffer_ready} = 0;
+        $self->{next_playlist} = 0;
+        delete @$self{qw(
+            last_sequence playlist_request init_request current_init_url
+            init_retry_url init_retry_at
+        )};
+        $self->_reset_extractors;
+        $self->{log}->info(
+            'Twitch HLS live playlist URL refreshed; restarting at live edge'
+        );
+        $self->_fetch_playlist;
+    });
+
+    return 1;
+}
+
 sub _fetch_playlist {
     my ($self) = @_;
     return if $self->{closed} || $self->{playlist_request};
 
     my $url = $self->{playlist_url} or return;
+    my $generation = $self->{url_generation};
     $self->{playlist_request} = $self->_request($url, sub {
         my ($body) = @_;
+        return if $generation != $self->{url_generation};
         delete $self->{playlist_request};
         my $playlist = Plugins::Twitch::HLS::Playlist->parse($body, $url);
         unless ($playlist) {
@@ -240,9 +307,11 @@ sub _fetch_playlist {
         $self->_fetch_segments;
     }, sub {
         my ($error) = @_;
+        return if $generation != $self->{url_generation};
         delete $self->{playlist_request};
         $self->{next_playlist} = time() + RETRY_DELAY;
         $self->{log}->error("Twitch HLS playlist request failed: $error");
+        $self->_refresh_live_playlist_url($error);
     });
 }
 
@@ -356,8 +425,10 @@ sub _fetch_init {
         && $self->{init_retry_url} eq $url
         && time() < ($self->{init_retry_at} || 0);
 
+    my $generation = $self->{url_generation};
     $self->{init_request} = $self->_request($url, sub {
         my ($init) = @_;
+        return if $generation != $self->{url_generation};
         delete $self->{init_request};
         if ($self->{mp4_extractor}->set_init($init)) {
             delete @$self{qw(init_retry_url init_retry_at)};
@@ -372,10 +443,12 @@ sub _fetch_init {
         }
     }, sub {
         my ($error) = @_;
+        return if $generation != $self->{url_generation};
         delete $self->{init_request};
         $self->{init_retry_url} = $url;
         $self->{init_retry_at} = time() + RETRY_DELAY;
         $self->{log}->error("Twitch HLS MP4 init request failed: $error");
+        $self->_refresh_live_playlist_url($error);
     });
 }
 
@@ -518,17 +591,21 @@ sub _fetch_segments {
         $window_seconds += $duration;
         next if $active_requests >= MAX_CONCURRENT_REQUESTS;
 
+        my $generation = $self->{url_generation};
         $segment->{request} = $self->_request($segment->{url}, sub {
             my ($media) = @_;
+            return if $generation != $self->{url_generation};
             delete $segment->{request};
             delete $segment->{retry_at};
             $segment->{media} = $media;
             $self->_fetch_segments;
         }, sub {
             my ($error) = @_;
+            return if $generation != $self->{url_generation};
             delete $segment->{request};
             $segment->{retry_at} = time() + RETRY_DELAY;
             $self->{log}->error("Twitch HLS segment request failed: $error");
+            $self->_refresh_live_playlist_url($error);
         });
         $active_requests++ if $segment->{request};
     }

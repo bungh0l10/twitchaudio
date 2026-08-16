@@ -177,6 +177,8 @@ An `EVENT` playlist with a known Twitch total duration is considered seekable. I
   independently of the number of concurrent requests;
 - downloads fragmented MP4 initialization segments when `EXT-X-MAP` changes;
 - retries playlist, initialization and media-segment failures after three seconds;
+- renews the Twitch playback token and signed live media-playlist URL after an
+  HTTP authorization failure, then restarts close to the current live edge;
 - reads the exact AAC profile and sample rate from the first ADTS frame;
 - supplies data through non-blocking reads to the LMS protocol adapter.
 

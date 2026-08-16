@@ -34,4 +34,11 @@ sub playlist_url {
     return $url;
 }
 
+sub is_authorization_error {
+    my ($error) = @_;
+    return 0 unless defined $error;
+    return $error =~ /(?:^|\s)(?:401|403)(?:\s|$)|unauthori[sz]ed|forbidden/i
+        ? 1 : 0;
+}
+
 1;

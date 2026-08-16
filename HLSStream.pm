@@ -19,6 +19,7 @@ use Slim::Utils::Timers ();
 use Time::HiRes qw(time);
 
 use Plugins::Twitch::Config ();
+use Plugins::Twitch::API ();
 use Plugins::Twitch::HLS::Session ();
 use Plugins::Twitch::HLS::URL ();
 
@@ -286,9 +287,10 @@ sub scanStream {
 sub new {
     my ($class, $args) = @_;
     my $song = $args->{song};
-    my $url = ($song && $song->can('streamUrl') ? $song->streamUrl : undef)
+    my $internal_url = ($song && $song->can('streamUrl') ? $song->streamUrl : undef)
         || $args->{url};
-    $url = Plugins::Twitch::HLS::URL::playlist_url($url);
+    my ($url_type, $media_id) = _twitch_media_id($song, $internal_url);
+    my $url = Plugins::Twitch::HLS::URL::playlist_url($internal_url);
     return unless $url;
 
     my $seek_time = ($song && $song->seekdata)
@@ -310,6 +312,8 @@ sub new {
     ${*$self}{song} = $song;
     ${*$self}{playlist_url} = $url;
     ${*$self}{is_vod} = $is_vod;
+    ${*$self}{live_channel} = $media_id
+        if defined $url_type && $url_type eq 'live';
     ${*$self}{resume_time} = $seek_time;
     $self->_start_session;
 
@@ -334,6 +338,15 @@ sub _start_session {
             Plugins::Twitch::Config::live_start_buffer_seconds(),
         live_buffer_seconds =>
             Plugins::Twitch::Config::live_buffer_seconds(),
+        refresh_playlist_url => !$is_vod && ${*$self}{live_channel}
+            ? sub {
+                my ($callback) = @_;
+                Plugins::Twitch::API::getAudioUrl(
+                    ${*$self}{live_channel},
+                    $callback,
+                );
+            }
+            : undef,
         log          => $log,
         on_duration  => sub {
             my ($duration) = @_;

@@ -8,9 +8,9 @@ use Slim::Utils::Prefs qw(preferences);
 use constant {
     DEFAULT_CACHE_TTL             => 3600,
     DEFAULT_LIVE_CACHE_TTL        => 300,
-    DEFAULT_LIVE_INITIAL_SEGMENTS => 6,
-    DEFAULT_LIVE_START_BUFFER_SECONDS => 5,
-    DEFAULT_LIVE_BUFFER_SECONDS   => 10,
+    DEFAULT_LIVE_INITIAL_SEGMENTS => 8,
+    DEFAULT_LIVE_START_BUFFER_SECONDS => 8,
+    DEFAULT_LIVE_BUFFER_SECONDS   => 13,
     DEFAULT_CLIENT_ID             => 'kimne78kx3ncx6brgo4mv6wki5h1ko',
 };
 

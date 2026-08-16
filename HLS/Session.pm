@@ -104,6 +104,7 @@ sub new {
         playlist_url  => $args->{playlist_url},
         is_vod        => $args->{is_vod} ? 1 : 0,
         seek_time     => $args->{seek_time},
+        vod_playback_position => $args->{seek_time} || 0,
         live_buffer_seconds => $live_buffer_seconds,
         live_start_buffer_seconds => $live_start_buffer_seconds,
         live_initial_segments => _positive_integer(
@@ -144,6 +145,17 @@ sub close {
 sub position {
     my ($self) = @_;
     return $self->{position} || 0;
+}
+
+sub set_playback_position {
+    my ($self, $position) = @_;
+    return unless $self->{is_vod}
+        && defined $position
+        && $position =~ /^\d+(?:\.\d+)?$/;
+
+    $self->{vod_playback_position} = $position + 0;
+    $self->_fetch_segments;
+    return;
 }
 
 sub _reset_extractors {
@@ -572,6 +584,16 @@ sub _fetch_segments {
 
     for my $segment (@{ $self->{segments} }) {
         last if $window_seconds >= $target;
+
+        # A transcoder may consume AAC much faster than the player can play
+        # it. Bound VOD network activity to the actual player position rather
+        # than allowing every sysread() to move the download window forward.
+        if ($self->{is_vod} && defined $segment->{start_time}) {
+            my $download_limit =
+                ($self->{vod_playback_position} || 0)
+                + VOD_BUFFER_SECONDS;
+            last if $segment->{start_time} >= $download_limit;
+        }
 
         my $duration = _segment_buffer_seconds($segment);
         if (defined $segment->{aac}

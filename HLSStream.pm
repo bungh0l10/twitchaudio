@@ -218,6 +218,33 @@ sub _resume_position {
     return Slim::Utils::Cache->new->get($key);
 }
 
+sub _player_position {
+    my ($song) = @_;
+    return unless $song;
+
+    my $client = $song->master or return;
+    my $controller = $client->can('controller')
+        ? $client->controller
+        : undef;
+
+    my $position;
+    if ($controller && $controller->can('playingSongElapsed')) {
+        $position = eval { $controller->playingSongElapsed };
+    }
+    elsif ($client->can('songElapsedSeconds')) {
+        my $elapsed = eval { $client->songElapsedSeconds };
+        $position = ($song->startOffset || 0) + $elapsed
+            if defined $elapsed;
+    }
+
+    return unless defined $position
+        && $position =~ /^\d+(?:\.\d+)?$/;
+
+    my $duration = $song->duration || 0;
+    $position = $duration if $duration && $position > $duration;
+    return $position + 0;
+}
+
 sub getSeekData {
     my ($class, $client, $song, $newtime) = @_;
     _persist_resume_position($song, $newtime) if _is_vod_song($song);
@@ -315,6 +342,7 @@ sub new {
     ${*$self}{live_channel} = $media_id
         if defined $url_type && $url_type eq 'live';
     ${*$self}{resume_time} = $seek_time;
+    ${*$self}{played_position} = $seek_time || 0;
     $self->_start_session;
 
     $log->info('Twitch HLS reader opened');
@@ -371,6 +399,7 @@ sub _start_session {
         },
     });
     ${*$self}{closed} = 0;
+    $self->_schedule_resume_update if $is_vod;
     return;
 }
 
@@ -384,6 +413,36 @@ sub _schedule_wakeup {
         time(),
         \&_run_wakeup,
     );
+    return;
+}
+
+sub _schedule_resume_update {
+    my ($self) = @_;
+    return if ${*$self}{closed} || !${*$self}{is_vod};
+
+    Slim::Utils::Timers::setTimer(
+        $self,
+        time() + RESUME_CACHE_INTERVAL,
+        \&_run_resume_update,
+    );
+    return;
+}
+
+sub _run_resume_update {
+    my ($self) = @_;
+    return if ${*$self}{closed} || !${*$self}{is_vod};
+
+    my $song = ${*$self}{song};
+    my $position = _player_position($song);
+    if (defined $position && $position > 0) {
+        ${*$self}{played_position} = $position;
+        ${*$self}{resume_time} = $position;
+        _persist_resume_position($song, $position);
+        ${*$self}{session}->set_playback_position($position)
+            if ${*$self}{session};
+    }
+
+    $self->_schedule_resume_update;
     return;
 }
 
@@ -411,9 +470,13 @@ sub _run_wakeup {
 sub close {
     my ($self) = @_;
     Slim::Utils::Timers::killTimers($self, \&_run_wakeup);
+    Slim::Utils::Timers::killTimers($self, \&_run_resume_update);
     delete ${*$self}{wakeup_pending};
-    if (${*$self}{is_vod} && ${*$self}{session}) {
-        my $position = ${*$self}{session}->position;
+    if (${*$self}{is_vod}) {
+        my $current = _player_position(${*$self}{song});
+        my $position = defined $current && $current > 0
+            ? $current
+            : (${*$self}{played_position} || 0);
         if ($position > 0) {
             ${*$self}{resume_time} = $position;
             _persist_resume_position(${*$self}{song}, $position);
@@ -438,18 +501,6 @@ sub sysread {
 
     my $bytes = ${*$self}{session}->read($max_bytes);
     if (defined $bytes) {
-        if (${*$self}{is_vod} && length($bytes)) {
-            my $position = ${*$self}{session}->position;
-            ${*$self}{resume_time} = $position;
-            my $song = ${*$self}{song};
-            _set_resume_position($song, $position);
-
-            my $last_write = ${*$self}{last_resume_cache_write} || 0;
-            if (time() - $last_write >= RESUME_CACHE_INTERVAL) {
-                _persist_resume_position($song, $position);
-                ${*$self}{last_resume_cache_write} = time();
-            }
-        }
         $_[1] = $bytes;
         return length($bytes);
     }

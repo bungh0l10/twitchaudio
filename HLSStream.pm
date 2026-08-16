@@ -20,6 +20,7 @@ use Time::HiRes qw(time);
 
 use Plugins::Twitch::Config ();
 use Plugins::Twitch::HLS::Session ();
+use Plugins::Twitch::HLS::URL ();
 
 my $log = logger('plugin.twitch');
 
@@ -68,6 +69,9 @@ sub _twitch_media_id {
     for my $candidate (@urls) {
         next unless defined $candidate;
         return ($1, $2) if $candidate =~ /^twitch:(live|vod):([^|?#]+)/;
+        my $embedded = Plugins::Twitch::HLS::URL::media_id($candidate);
+        return ($1, $2) if defined $embedded
+            && $embedded =~ /^(live|vod):([^|?#]+)/;
         my $mapped = Slim::Utils::Cache->new->get("twitch:media-for-url:$candidate");
         return ($1, $2) if defined $mapped
             && $mapped =~ /^(live|vod):([^|?#]+)/;
@@ -284,8 +288,8 @@ sub new {
     my $song = $args->{song};
     my $url = ($song && $song->can('streamUrl') ? $song->streamUrl : undef)
         || $args->{url};
-    $url =~ s{^twitchhls:}{https:};
-    $url =~ s/\|$//;
+    $url = Plugins::Twitch::HLS::URL::playlist_url($url);
+    return unless $url;
 
     my $seek_time = ($song && $song->seekdata)
         ? $song->seekdata->{timeOffset}

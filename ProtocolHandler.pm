@@ -15,6 +15,7 @@ use Time::HiRes qw(time);
 use Plugins::Twitch::API ();
 use Plugins::Twitch::Config ();
 use Plugins::Twitch::HLSStream ();
+use Plugins::Twitch::HLS::URL ();
 
 my $log = logger('plugin.twitch');
 
@@ -76,10 +77,8 @@ sub _apply_song_metadata {
 }
 
 sub _native_hls_url {
-    my ($url) = @_;
-    $url =~ s{^https:}{twitchhls:};
-    $url =~ s{^http:}{twitchhls:};
-    return $url;
+    my ($url, $media_id) = @_;
+    return Plugins::Twitch::HLS::URL::to_internal($url, $media_id);
 }
 
 sub _song_for_media_id {
@@ -193,7 +192,8 @@ sub _scan_stream {
         my $stream_type = uc($media_type);
         # $log->debug("TWITCH $stream_type STREAM URL: $stream_url");
 
-        my $native_url = _native_hls_url($stream_url);
+        my $native_url = _native_hls_url($stream_url, $media_id);
+        return unless $native_url;
         my $cache = Slim::Utils::Cache->new;
         for my $url ($stream_url, $native_url) {
             $cache->set(

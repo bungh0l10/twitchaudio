@@ -131,9 +131,9 @@ The returned access token and signature are passed to Twitch Usher. The resultin
 
 `ProtocolHandler.pm` registers the logical `twitch:` protocol and translates it into an internal `twitchhls:` URL after resolving the Twitch media playlist.
 
-The custom scheme prevents LMS's generic remote playlist scanner from treating the HLS media playlist as an ordinary M3U file containing independently playable tracks. The scan is explicitly configured as AAC audio with no video.
+The custom scheme prevents LMS's generic remote playlist scanner from treating the HLS media playlist as an ordinary M3U file containing independently playable tracks. The internal URL carries the logical live or VOD identity as well, so LMS can recreate a song and restore VOD state without depending on a temporary signed-URL cache entry.
 
-The handler also maintains a short-lived association between signed Twitch CDN URLs and their logical live or VOD identity. This is necessary because LMS may later request metadata using the resolved HLS URL rather than the original `twitch:` URL.
+The handler also maintains a short-lived association between signed Twitch CDN URLs and their logical live or VOD identity for compatibility with URLs created by earlier plugin versions. New internal URLs preserve this association themselves. The private identity marker is removed before an HTTPS playlist request is sent to Twitch.
 
 ### HLS playlist parser
 
@@ -357,6 +357,7 @@ Resolved Twitch HLS URLs contain temporary playback credentials and are logged o
 | `API.pm` | Asynchronous Twitch GraphQL, playback-token and master-playlist requests. |
 | `ProtocolHandler.pm` | Logical `twitch:` protocol, LMS scanning, URL identity mapping and initial metadata. |
 | `HLSStream.pm` | LMS non-blocking stream adapter, duration/seek integration, metadata exposure and standby resume. |
+| `HLS/URL.pm` | Internal HLS URL construction, logical media identity and request-URL recovery. |
 | `HLS/Playlist.pm` | Pure HLS media-playlist parsing and timeline calculations. |
 | `HLS/Session.pm` | Playlist reloads, requests, queueing, prefetch, retry logic and extractor coordination. |
 | `HLS/Extractor/MPEGTSAAC.pm` | MPEG-TS demultiplexing and ADTS-AAC extraction. |

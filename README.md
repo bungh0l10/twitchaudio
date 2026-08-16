@@ -133,6 +133,10 @@ The returned access token and signature are passed to Twitch Usher. The resultin
 
 The custom scheme prevents LMS's generic remote playlist scanner from treating the HLS media playlist as an ordinary M3U file containing independently playable tracks. The internal URL carries the logical live or VOD identity as well, so LMS can recreate a song and restore VOD state without depending on a temporary signed-URL cache entry.
 
+If Twitch cannot resolve a live channel or VOD to a playable media playlist,
+the protocol handler completes the LMS scan callback with an explicit error.
+This prevents LMS from remaining indefinitely in its URL-scanning state.
+
 The handler also maintains a short-lived association between signed Twitch CDN URLs and their logical live or VOD identity for compatibility with URLs created by earlier plugin versions. New internal URLs preserve this association themselves. The private identity marker is removed before an HTTPS playlist request is sent to Twitch.
 
 ### HLS playlist parser

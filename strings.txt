@@ -25,3 +25,7 @@ PLUGIN_TWITCH_ARCHIVE
 PLUGIN_TWITCH_OFFLINE
 	DE	Offline
 	EN	Offline
+
+PLUGIN_TWITCH_STREAM_UNAVAILABLE
+	DE	Der Twitch-Stream ist momentan nicht verfügbar
+	EN	The Twitch stream is currently unavailable

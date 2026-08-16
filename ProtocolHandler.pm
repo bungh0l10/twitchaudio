@@ -175,7 +175,18 @@ sub scanUrl {
         return;
     }
 
-    return;
+    return _finish_scan_error($args, 'PLUGIN_TWITCH_STREAM_UNAVAILABLE');
+}
+
+sub _finish_scan_error {
+    my ($args, $error) = @_;
+    my $cb = $args && $args->{cb} ? $args->{cb} : sub {};
+    my $pt = $args && ref $args->{pt} eq 'ARRAY' ? $args->{pt} : [];
+    return $cb->(
+        undef,
+        $error || 'PLUGIN_TWITCH_STREAM_UNAVAILABLE',
+        @$pt,
+    );
 }
 
 sub _scan_stream {
@@ -187,13 +198,25 @@ sub _scan_stream {
 
     $fetch_url->(sub {
         my ($stream_url) = @_;
-        return unless $stream_url;
+        unless ($stream_url) {
+            $log->error("Twitch $media_type stream URL resolution failed");
+            return _finish_scan_error(
+                $args,
+                'PLUGIN_TWITCH_STREAM_UNAVAILABLE',
+            );
+        }
 
         my $stream_type = uc($media_type);
         # $log->debug("TWITCH $stream_type STREAM URL: $stream_url");
 
         my $native_url = _native_hls_url($stream_url, $media_id);
-        return unless $native_url;
+        unless ($native_url) {
+            $log->error("Twitch $media_type stream URL is invalid");
+            return _finish_scan_error(
+                $args,
+                'PLUGIN_TWITCH_STREAM_UNAVAILABLE',
+            );
+        }
         my $cache = Slim::Utils::Cache->new;
         for my $url ($stream_url, $native_url) {
             $cache->set(

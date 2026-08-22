@@ -133,7 +133,13 @@ sub _store_audio_info {
 
     $song->pluginData('twitchAudioInfo', $audio_info);
 
-    # Keep LMS' track properties in sync with the detected stream.
+    # LMS 9.2 reports the currently delivered technical data from the Song
+    # object. Material Skin prefers those values over the source metadata in
+    # playlist_loop, so update the Song as well as its track objects.
+    $song->samplerate($audio_info->{sample_rate})
+        if $audio_info->{sample_rate} && $song->can('samplerate');
+
+    # Keep LMS' source-track properties in sync with the detected stream.
     for my $method (qw(track currentTrack)) {
         next unless $song->can($method);
         my $track = $song->$method or next;

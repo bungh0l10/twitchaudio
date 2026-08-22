@@ -4,7 +4,7 @@
     <title lang="EN">Twitch Beta Plugin Repository</title>
   </details>
   <plugins>
-    <plugin version="0.0.1.5.11" minTarget="9.1" name="Twitch" maxTarget="*">
+    <plugin version="0.0.1.5.12" minTarget="9.1" name="Twitch" maxTarget="*">
       <category>musicservices</category>
       <title lang="EN">Twitch Beta</title>
       <sha>d7583e40c908675b8ecfc4a64c575dea4ac7b1b0</sha>

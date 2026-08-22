@@ -286,6 +286,10 @@ The detected audio properties are attached to the active LMS song and cached
 under the logical Twitch media identity. This keeps the technical information
 available when LMS asks with either the original `twitch:` URL or its resolved
 HLS URL, including metadata calls which pass the song object explicitly.
+The parsed sample rate is written to both the LMS song and its track objects.
+On LMS 9.2 this keeps the current-output technical data in the main status
+response consistent with the source data in `playlist_loop`, which Material
+Skin uses as a fallback.
 
 Metadata includes:
 

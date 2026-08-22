@@ -1,16 +1,16 @@
 <?xml version='1.0' standalone='yes'?>
 <extensions>
-  <details>
-    <title lang="EN">Twitch Beta Plugin Repository</title>
-  </details>
   <plugins>
-    <plugin version="0.0.1.5.12" minTarget="9.1" name="Twitch" maxTarget="*">
+    <plugin minTarget="9.1" version="0.0.1.5.12" maxTarget="*" name="Twitch">
+      <url>https://github.com/bungh0l10/twitchaudio/releases/download/0.0.1.5.12-beta/TWITCH.zip</url>
       <category>musicservices</category>
+      <sha>4126ea207558de0a13b910cf0dc3c5ad4d248e4f</sha>
       <title lang="EN">Twitch Beta</title>
-      <sha>d7583e40c908675b8ecfc4a64c575dea4ac7b1b0</sha>
-      <url>https://github.com/bungh0l10/twitchaudio/releases/download/0.0.1.5.11-beta/TWITCH.zip</url>
       <creator>bungh0l10</creator>
       <desc lang="EN">Beta builds of the audio-only Twitch Streaming Plugin for LMS</desc>
     </plugin>
   </plugins>
+  <details>
+    <title lang="EN">Twitch Beta Plugin Repository</title>
+  </details>
 </extensions>

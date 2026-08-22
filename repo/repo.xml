@@ -4,9 +4,8 @@
     <title lang="EN">Twitch Plugin Repository</title>
   </details>
   <plugins>
-    <plugin name="Twitch" minTarget="9.1" version="0.0.1.5.9" maxTarget="*">
+    <plugin name="Twitch" minTarget="9.1" version="0.0.2" maxTarget="*">
       <sha>e13cd512f18fe490ce67c3cc5bf6f25054771845</sha>
-      <url>https://github.com/bungh0l10/twitchaudio/releases/download/0.0.1.5.9/TWITCH.zip</url>
       <url>https://github.com/bungh0l10/twitchaudio/releases/download/0.0.1.5/TWITCH.zip</url>
       <desc lang="EN">Audio-only Twitch Streaming Plugin for LMS</desc>
       <category>musicservices</category>

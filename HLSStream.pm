@@ -10,24 +10,23 @@ use bytes;
 use base qw(IO::Handle);
 
 use Slim::Player::ProtocolHandlers;
+use Slim::Player::Source ();
 use Slim::Control::Request ();
 use Slim::Utils::Cache;
 use Slim::Utils::Errno;
 use Slim::Utils::Log qw(logger);
-use Slim::Utils::Versions ();
+use Slim::Utils::Timers ();
 use Time::HiRes qw(time);
 
 use Plugins::Twitch::Config ();
+use Plugins::Twitch::API ();
 use Plugins::Twitch::HLS::Session ();
+use Plugins::Twitch::HLS::URL ();
 
 my $log = logger('plugin.twitch');
 
 Slim::Player::ProtocolHandlers->registerHandler('twitchhls', __PACKAGE__);
 
-# LMS releases before 7.9.1 retry an IO handler only for EINTR. Newer LMS
-# releases correctly use EWOULDBLOCK for an asynchronously filled handle.
-use constant IO_SELECT_FIXED =>
-    Slim::Utils::Versions->compareVersions($::VERSION, '7.9.1') >= 0;
 use constant RESUME_CACHE_INTERVAL => 3;
 
 sub isRemote         { 1 }
@@ -71,6 +70,9 @@ sub _twitch_media_id {
     for my $candidate (@urls) {
         next unless defined $candidate;
         return ($1, $2) if $candidate =~ /^twitch:(live|vod):([^|?#]+)/;
+        my $embedded = Plugins::Twitch::HLS::URL::media_id($candidate);
+        return ($1, $2) if defined $embedded
+            && $embedded =~ /^(live|vod):([^|?#]+)/;
         my $mapped = Slim::Utils::Cache->new->get("twitch:media-for-url:$candidate");
         return ($1, $2) if defined $mapped
             && $mapped =~ /^(live|vod):([^|?#]+)/;
@@ -131,7 +133,13 @@ sub _store_audio_info {
 
     $song->pluginData('twitchAudioInfo', $audio_info);
 
-    # Keep LMS' track properties in sync with the detected stream.
+    # LMS 9.2 reports the currently delivered technical data from the Song
+    # object. Material Skin prefers those values over the source metadata in
+    # playlist_loop, so update the Song as well as its track objects.
+    $song->samplerate($audio_info->{sample_rate})
+        if $audio_info->{sample_rate} && $song->can('samplerate');
+
+    # Keep LMS' source-track properties in sync with the detected stream.
     for my $method (qw(track currentTrack)) {
         next unless $song->can($method);
         my $track = $song->$method or next;
@@ -216,6 +224,33 @@ sub _resume_position {
     return Slim::Utils::Cache->new->get($key);
 }
 
+sub _player_position {
+    my ($song) = @_;
+    return unless $song;
+
+    my $client = $song->master or return;
+    my $controller = $client->can('controller')
+        ? $client->controller
+        : undef;
+
+    my $position;
+    if ($controller && $controller->can('playingSongElapsed')) {
+        $position = eval { $controller->playingSongElapsed };
+    }
+    elsif ($client->can('songElapsedSeconds')) {
+        my $elapsed = eval { $client->songElapsedSeconds };
+        $position = ($song->startOffset || 0) + $elapsed
+            if defined $elapsed;
+    }
+
+    return unless defined $position
+        && $position =~ /^\d+(?:\.\d+)?$/;
+
+    my $duration = $song->duration || 0;
+    $position = $duration if $duration && $position > $duration;
+    return $position + 0;
+}
+
 sub getSeekData {
     my ($class, $client, $song, $newtime) = @_;
     _persist_resume_position($song, $newtime) if _is_vod_song($song);
@@ -285,10 +320,11 @@ sub scanStream {
 sub new {
     my ($class, $args) = @_;
     my $song = $args->{song};
-    my $url = ($song && $song->can('streamUrl') ? $song->streamUrl : undef)
+    my $internal_url = ($song && $song->can('streamUrl') ? $song->streamUrl : undef)
         || $args->{url};
-    $url =~ s{^twitchhls:}{https:};
-    $url =~ s/\|$//;
+    my ($url_type, $media_id) = _twitch_media_id($song, $internal_url);
+    my $url = Plugins::Twitch::HLS::URL::playlist_url($internal_url);
+    return unless $url;
 
     my $seek_time = ($song && $song->seekdata)
         ? $song->seekdata->{timeOffset}
@@ -309,7 +345,10 @@ sub new {
     ${*$self}{song} = $song;
     ${*$self}{playlist_url} = $url;
     ${*$self}{is_vod} = $is_vod;
+    ${*$self}{live_channel} = $media_id
+        if defined $url_type && $url_type eq 'live';
     ${*$self}{resume_time} = $seek_time;
+    ${*$self}{played_position} = $seek_time || 0;
     $self->_start_session;
 
     $log->info('Twitch HLS reader opened');
@@ -329,8 +368,19 @@ sub _start_session {
         seek_time    => $seek_time,
         live_initial_segments =>
             Plugins::Twitch::Config::live_initial_segments(),
+        live_start_buffer_seconds =>
+            Plugins::Twitch::Config::live_start_buffer_seconds(),
         live_buffer_seconds =>
             Plugins::Twitch::Config::live_buffer_seconds(),
+        refresh_playlist_url => !$is_vod && ${*$self}{live_channel}
+            ? sub {
+                my ($callback) = @_;
+                Plugins::Twitch::API::getAudioUrl(
+                    ${*$self}{live_channel},
+                    $callback,
+                );
+            }
+            : undef,
         log          => $log,
         on_duration  => sub {
             my ($duration) = @_;
@@ -346,19 +396,93 @@ sub _start_session {
             _store_audio_info($song, $audio_info);
             _notify_metadata($song);
         },
+        on_data => sub {
+            $self->_schedule_wakeup;
+        },
         on_seek => sub {
             my ($offset) = @_;
             _set_progress_offset($song, $offset);
         },
     });
     ${*$self}{closed} = 0;
+    $self->_schedule_resume_update if $is_vod;
+    return;
+}
+
+sub _schedule_wakeup {
+    my ($self) = @_;
+    return if ${*$self}{closed} || ${*$self}{wakeup_pending};
+
+    ${*$self}{wakeup_pending} = 1;
+    Slim::Utils::Timers::setTimer(
+        $self,
+        time(),
+        \&_run_wakeup,
+    );
+    return;
+}
+
+sub _schedule_resume_update {
+    my ($self) = @_;
+    return if ${*$self}{closed} || !${*$self}{is_vod};
+
+    Slim::Utils::Timers::setTimer(
+        $self,
+        time() + RESUME_CACHE_INTERVAL,
+        \&_run_resume_update,
+    );
+    return;
+}
+
+sub _run_resume_update {
+    my ($self) = @_;
+    return if ${*$self}{closed} || !${*$self}{is_vod};
+
+    my $song = ${*$self}{song};
+    my $position = _player_position($song);
+    if (defined $position && $position > 0) {
+        ${*$self}{played_position} = $position;
+        ${*$self}{resume_time} = $position;
+        _persist_resume_position($song, $position);
+        ${*$self}{session}->set_playback_position($position)
+            if ${*$self}{session};
+    }
+
+    $self->_schedule_resume_update;
+    return;
+}
+
+sub _run_wakeup {
+    my ($self) = @_;
+    delete ${*$self}{wakeup_pending};
+    return if ${*$self}{closed} || !${*$self}{session};
+
+    my $song = ${*$self}{song} or return;
+    my $client = $song->master or return;
+    my $controller = $client->can('controller')
+        ? $client->controller
+        : undef;
+    my $master = $controller && $controller->can('master')
+        ? ($controller->master || $client)
+        : $client;
+
+    # Use LMS' normal source wakeup path so synchronized players and the
+    # registered stream-readable callback are handled exactly as they are for
+    # a readable socket.  The timer keeps this out of the HTTP callback stack.
+    Slim::Player::Source::_wakeupOnReadable(undef, $master);
     return;
 }
 
 sub close {
     my ($self) = @_;
-    if (${*$self}{is_vod} && ${*$self}{session}) {
-        my $position = ${*$self}{session}->position;
+    Slim::Utils::Timers::killTimers($self, \&_run_wakeup);
+    Slim::Utils::Timers::killTimers($self, \&_run_resume_update);
+    delete ${*$self}{wakeup_pending};
+    if (${*$self}{is_vod}) {
+        my $current = _player_position(${*$self}{song});
+        my $position = defined $current && $current > 0
+            ? $current
+            : (${*$self}{played_position} || 0);
         if ($position > 0) {
             ${*$self}{resume_time} = $position;
             _persist_resume_position(${*$self}{song}, $position);
@@ -383,23 +507,16 @@ sub sysread {
 
     my $bytes = ${*$self}{session}->read($max_bytes);
     if (defined $bytes) {
-        if (${*$self}{is_vod} && length($bytes)) {
-            my $position = ${*$self}{session}->position;
-            ${*$self}{resume_time} = $position;
-            my $song = ${*$self}{song};
-            _set_resume_position($song, $position);
-
-            my $last_write = ${*$self}{last_resume_cache_write} || 0;
-            if (time() - $last_write >= RESUME_CACHE_INTERVAL) {
-                _persist_resume_position($song, $position);
-                ${*$self}{last_resume_cache_write} = time();
-            }
-        }
         $_[1] = $bytes;
         return length($bytes);
     }
 
-    $! = IO_SELECT_FIXED ? EWOULDBLOCK : EINTR;
+    # This handle is a proxy for asynchronous HTTP callbacks, not a socket
+    # which will itself become readable.  EWOULDBLOCK makes LMS register the
+    # proxy (or an empty transcoding pipe) with select(), which can leave the
+    # stream asleep after the callback fills our buffer.  EINTR keeps the
+    # normal LMS retry path active on every supported LMS release.
+    $! = EINTR;
     return undef;
 }
 

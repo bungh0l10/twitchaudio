@@ -131,9 +131,13 @@ The returned access token and signature are passed to Twitch Usher. The resultin
 
 `ProtocolHandler.pm` registers the logical `twitch:` protocol and translates it into an internal `twitchhls:` URL after resolving the Twitch media playlist.
 
-The custom scheme prevents LMS's generic remote playlist scanner from treating the HLS media playlist as an ordinary M3U file containing independently playable tracks. The scan is explicitly configured as AAC audio with no video.
+The custom scheme prevents LMS's generic remote playlist scanner from treating the HLS media playlist as an ordinary M3U file containing independently playable tracks. The internal URL carries the logical live or VOD identity as well, so LMS can recreate a song and restore VOD state without depending on a temporary signed-URL cache entry.
 
-The handler also maintains a short-lived association between signed Twitch CDN URLs and their logical live or VOD identity. This is necessary because LMS may later request metadata using the resolved HLS URL rather than the original `twitch:` URL.
+If Twitch cannot resolve a live channel or VOD to a playable media playlist,
+the protocol handler completes the LMS scan callback with an explicit error.
+This prevents LMS from remaining indefinitely in its URL-scanning state.
+
+The handler also maintains a short-lived association between signed Twitch CDN URLs and their logical live or VOD identity for compatibility with URLs created by earlier plugin versions. New internal URLs preserve this association themselves. The private identity marker is removed before an HTTPS playlist request is sent to Twitch.
 
 ### HLS playlist parser
 
@@ -164,19 +168,46 @@ An `EVENT` playlist with a known Twitch total duration is considered seekable. I
 - bounds live-stream deduplication history to the current playlist window plus ten preceding media sequences;
 - detects a media-sequence restart and resets extractor state;
 - resets MPEG-TS and fragmented MP4 extraction state at HLS discontinuities and reloads MP4 initialization data;
-- starts a live stream near the live edge by retaining a configurable number
-  of initially visible segments (five by default);
+- starts near the live edge by retaining the smallest suffix of the initial
+  playlist which covers the live buffer target, subject to a configurable
+  maximum of six segments;
+- holds the first live audio bytes until the configured live buffer target is
+  present as fully downloaded, ordered AAC, creating a real startup jitter
+  buffer instead of merely limiting how far downloads run ahead;
 - downloads up to three media segments concurrently and extracts them in
   playlist order;
-- targets a configurable live-audio buffer (twelve seconds by default) and
+- targets a configurable live-audio buffer (ten seconds by default) and
   thirty seconds for VODs,
   independently of the number of concurrent requests;
 - downloads fragmented MP4 initialization segments when `EXT-X-MAP` changes;
 - retries playlist, initialization and media-segment failures after three seconds;
+- renews the Twitch playback token and signed live media-playlist URL after an
+  HTTP authorization failure, then restarts close to the current live edge;
 - reads the exact AAC profile and sample rate from the first ADTS frame;
 - supplies data through non-blocking reads to the LMS protocol adapter.
 
-Playlist and segment HTTP requests use a twenty-second timeout. While a request is pending and no audio is available, the adapter reports `EWOULDBLOCK` on LMS versions with the corrected asynchronous I/O behavior and `EINTR` on older versions.
+Playlist and segment HTTP requests use a twenty-second timeout. While a request
+is pending and no audio is available, the adapter reports `EINTR` on every
+supported LMS version. The stream handle is a proxy filled by asynchronous HTTP
+callbacks rather than a socket which becomes readable itself. In particular,
+using `EWOULDBLOCK` here would make LMS 9.2 wait in `select()` for the proxy or
+an empty transcoding pipe and could leave playback stuck after a startup delay,
+retry or buffer underrun. `EINTR` keeps LMS's safe periodic retry path active;
+an empty string remains reserved for a genuine end of stream.
+
+When an asynchronously downloaded segment has been converted to ordered AAC,
+the session also schedules a coalesced LMS source wakeup. This lets LMS drain
+new audio immediately instead of waiting up to the next periodic `EINTR` retry.
+The wakeup runs on the LMS event loop, handles synchronized players through the
+normal source callback path and is cancelled when the stream closes. `EINTR`
+remains the fallback if no readable callback is registered or a wakeup is lost.
+For live playback, these wakeups begin draining audio only after the startup
+jitter buffer reaches `live_start_buffer_seconds` (five seconds by default).
+Downloads continue concurrently towards `live_buffer_seconds` (ten seconds by
+default). A live
+playlist which ends before reaching the target is released immediately once it
+is complete, so a short broadcast cannot wait forever. VOD playback is not
+subject to this live startup gate.
 
 ## Supported HLS media containers
 
@@ -255,6 +286,10 @@ The detected audio properties are attached to the active LMS song and cached
 under the logical Twitch media identity. This keeps the technical information
 available when LMS asks with either the original `twitch:` URL or its resolved
 HLS URL, including metadata calls which pass the song object explicitly.
+The parsed sample rate is written to both the LMS song and its track objects.
+On LMS 9.2 this keeps the current-output technical data in the main status
+response consistent with the source data in `playlist_loop`, which Material
+Skin uses as a fallback.
 
 Metadata includes:
 
@@ -290,15 +325,16 @@ The plugin does not attempt to recover, replace or bypass audio muted by Twitch.
 
 ## Configuration
 
-The plugin initializes five LMS preferences in the `plugin.twitch` namespace:
+The plugin initializes six LMS preferences in the `plugin.twitch` namespace:
 
 | Preference | Default | Purpose |
 | --- | ---: | --- |
 | `client_id` | `kimne78kx3ncx6brgo4mv6wki5h1ko` | Client ID sent to Twitch GraphQL requests. |
 | `cache_ttl` | `3600` | Lifetime in seconds for VOD metadata and media-URL associations. |
 | `live_cache_ttl` | `300` | Refresh interval in seconds for live-channel metadata; retained values use `cache_ttl`. |
-| `live_initial_segments` | `5` | Number of segments retained from the initial live playlist window. Valid range: 1–10. |
-| `live_buffer_seconds` | `12` | Target duration in seconds for downloaded live audio. Valid range: 1–120; decimal values are accepted. |
+| `live_initial_segments` | `6` | Maximum number of segments retained from the initial live playlist. The smallest suffix covering `live_buffer_seconds` is selected. Valid range: 1–10. |
+| `live_start_buffer_seconds` | `5` | Ordered AAC required before live playback starts. Valid range: 1–120; decimal values are accepted and the effective value is capped at `live_buffer_seconds`. |
+| `live_buffer_seconds` | `10` | Target duration for downloaded live audio after playback starts. Valid range: 1–120; decimal values are accepted. |
 
 Invalid or out-of-range values fall back to their defaults. There is currently no dedicated settings page; preferences must be changed through LMS configuration mechanisms or by modifying the plugin defaults.
 
@@ -331,6 +367,7 @@ Resolved Twitch HLS URLs contain temporary playback credentials and are logged o
 | `API.pm` | Asynchronous Twitch GraphQL, playback-token and master-playlist requests. |
 | `ProtocolHandler.pm` | Logical `twitch:` protocol, LMS scanning, URL identity mapping and initial metadata. |
 | `HLSStream.pm` | LMS non-blocking stream adapter, duration/seek integration, metadata exposure and standby resume. |
+| `HLS/URL.pm` | Internal HLS URL construction, logical media identity and request-URL recovery. |
 | `HLS/Playlist.pm` | Pure HLS media-playlist parsing and timeline calculations. |
 | `HLS/Session.pm` | Playlist reloads, requests, queueing, prefetch, retry logic and extractor coordination. |
 | `HLS/Extractor/MPEGTSAAC.pm` | MPEG-TS demultiplexing and ADTS-AAC extraction. |

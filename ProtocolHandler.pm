@@ -15,6 +15,7 @@ use Time::HiRes qw(time);
 use Plugins::Twitch::API ();
 use Plugins::Twitch::Config ();
 use Plugins::Twitch::HLSStream ();
+use Plugins::Twitch::HLS::URL ();
 
 my $log = logger('plugin.twitch');
 
@@ -75,24 +76,9 @@ sub _apply_song_metadata {
     return 1;
 }
 
-sub _set_hls_args {
-    my ($args) = @_;
-
-    @$args{qw(parser contentType streamformat noVideo)} = (
-        'Plugins::Twitch::HLSStream',
-        'audio/aac',
-        'aac',
-        1,
-    );
-
-    return;
-}
-
 sub _native_hls_url {
-    my ($url) = @_;
-    $url =~ s{^https:}{twitchhls:};
-    $url =~ s{^http:}{twitchhls:};
-    return $url;
+    my ($url, $media_id) = @_;
+    return Plugins::Twitch::HLS::URL::to_internal($url, $media_id);
 }
 
 sub _song_for_media_id {
@@ -115,9 +101,7 @@ sub _song_for_media_id {
 
 sub canDirectStream { 0 }
 sub isAudio          { 1 }
-sub isRemote         { 1 }
 sub canSeek          { 0 }
-sub songBytes        { 0 }
 
 sub getMetadataFor {
     my ($class, $client, $url, $force, $song) = @_;
@@ -191,7 +175,18 @@ sub scanUrl {
         return;
     }
 
-    return;
+    return _finish_scan_error($args, 'PLUGIN_TWITCH_STREAM_UNAVAILABLE');
+}
+
+sub _finish_scan_error {
+    my ($args, $error) = @_;
+    my $cb = $args && $args->{cb} ? $args->{cb} : sub {};
+    my $pt = $args && ref $args->{pt} eq 'ARRAY' ? $args->{pt} : [];
+    return $cb->(
+        undef,
+        $error || 'PLUGIN_TWITCH_STREAM_UNAVAILABLE',
+        @$pt,
+    );
 }
 
 sub _scan_stream {
@@ -203,12 +198,25 @@ sub _scan_stream {
 
     $fetch_url->(sub {
         my ($stream_url) = @_;
-        return unless $stream_url;
+        unless ($stream_url) {
+            $log->error("Twitch $media_type stream URL resolution failed");
+            return _finish_scan_error(
+                $args,
+                'PLUGIN_TWITCH_STREAM_UNAVAILABLE',
+            );
+        }
 
         my $stream_type = uc($media_type);
         # $log->debug("TWITCH $stream_type STREAM URL: $stream_url");
 
-        my $native_url = _native_hls_url($stream_url);
+        my $native_url = _native_hls_url($stream_url, $media_id);
+        unless ($native_url) {
+            $log->error("Twitch $media_type stream URL is invalid");
+            return _finish_scan_error(
+                $args,
+                'PLUGIN_TWITCH_STREAM_UNAVAILABLE',
+            );
+        }
         my $cache = Slim::Utils::Cache->new;
         for my $url ($stream_url, $native_url) {
             $cache->set(
@@ -217,7 +225,6 @@ sub _scan_stream {
                 Plugins::Twitch::Config::cache_ttl(),
             );
         }
-        _set_hls_args($args);
         Slim::Utils::Scanner::Remote->scanURL($native_url, $args);
         _applyInitialMetadata($client, $media_id, $song);
 

@@ -180,28 +180,62 @@ sub extract {
     my $pes = '';
     my ($first_cc, $last_cc, $audio_packets, $continuity_jumps)
         = (undef, undef, 0, 0);
-    for (my $i = 0; $i + TS_PACKET_SIZE <= length($ts); $i += TS_PACKET_SIZE) {
-        my $h = _payload(substr($ts, $i, TS_PACKET_SIZE)) or next;
-        next unless $h->{pid} == $pid;
+    my $ts_length = length($ts);
+    for (my $i = 0; $i + TS_PACKET_SIZE <= $ts_length; $i += TS_PACKET_SIZE) {
+        # Read only the four-byte transport header before deciding whether the
+        # packet belongs to the audio PID. This avoids copying every complete
+        # TS packet and allocating a temporary payload hash on the hot path.
+        next unless substr($ts, $i, 1) eq "\x47";
+        my ($b1, $b2, $b3) = unpack('C3', substr($ts, $i + 1, 3));
+        my $packet_pid = (($b1 & 0x1f) << 8) | $b2;
+        next unless $packet_pid == $pid;
+
+        my $adaptation = ($b3 >> 4) & 3;
+        next unless $adaptation == 1 || $adaptation == 3;
+
+        my $packet_end = $i + TS_PACKET_SIZE;
+        my $payload_offset = $i + 4;
+        if ($adaptation == 3) {
+            # The packet is complete, so the length byte itself is present.
+            # Reject lengths which consume bytes beyond this packet; accepting
+            # them would accidentally read payload from the following packet.
+            my $adaptation_length = ord(substr($ts, $payload_offset, 1));
+            $payload_offset += 1 + $adaptation_length;
+            next if $payload_offset >= $packet_end;
+        }
+
+        my $cc = $b3 & 0x0f;
 
         if (defined $self->{cc}{$pid}
-            && $h->{cc} != (($self->{cc}{$pid} + 1) & 0x0f))
+            && $cc != (($self->{cc}{$pid} + 1) & 0x0f))
         {
             $continuity_jumps++;
             $self->{log}->debug("Twitch TS continuity jump on audio PID $pid")
                 if $self->{log};
         }
-        $first_cc = $h->{cc} unless defined $first_cc;
-        $last_cc = $h->{cc};
+        $first_cc = $cc unless defined $first_cc;
+        $last_cc = $cc;
         $audio_packets++;
-        $self->{cc}{$pid} = $h->{cc};
+        $self->{cc}{$pid} = $cc;
 
-        my $payload = $h->{payload};
-        if ($h->{pusi} && substr($payload, 0, 3) eq "\x00\x00\x01") {
-            next unless length($payload) >= 9;
-            $payload = substr($payload, 9 + ord(substr($payload, 8, 1)));
+        my $payload_length = $packet_end - $payload_offset;
+        if (($b1 & 0x40)
+            && $payload_length >= 3
+            && substr($ts, $payload_offset, 3) eq "\x00\x00\x01")
+        {
+            # A PES header has nine fixed bytes followed by the declared
+            # optional-header bytes. Never let a malformed length cross the
+            # current TS packet boundary.
+            next if $payload_length < 9;
+            my $pes_header_length
+                = 9 + ord(substr($ts, $payload_offset + 8, 1));
+            next if $pes_header_length > $payload_length;
+            $payload_offset += $pes_header_length;
+            $payload_length -= $pes_header_length;
         }
-        $pes .= $payload;
+
+        $pes .= substr($ts, $payload_offset, $payload_length)
+            if $payload_length;
     }
 
     $self->{last_continuity} = {

@@ -38,6 +38,51 @@ sub _error {
     };
 }
 
+sub _log_http_failure {
+    my ($method, $url, $status) = @_;
+
+    $log->error(
+        "Twitch HTTP $method failed for $url: "
+            . ($status || 'unknown error')
+    );
+    return;
+}
+
+sub _log_json_failure {
+    my ($error) = @_;
+
+    $log->error("Twitch JSON decode failed: $error");
+    return;
+}
+
+sub _log_graphql_errors {
+    my ($messages) = @_;
+
+    $log->error('Twitch GraphQL error: ' . join('; ', @$messages));
+    return;
+}
+
+sub _log_invalid_graphql_response {
+    my ($label) = @_;
+
+    $log->error("Twitch GraphQL invalid response: $label");
+    return;
+}
+
+sub _log_missing_playback_token {
+    my ($type, $id) = @_;
+
+    $log->error("Twitch missing $type playback token for $id");
+    return;
+}
+
+sub _log_missing_vod_metadata {
+    my ($vod_id) = @_;
+
+    $log->error("Twitch missing VOD metadata for $vod_id");
+    return;
+}
+
 sub _request {
     my ($method, $url, $headers, $body, $callback) = @_;
 
@@ -50,7 +95,7 @@ sub _request {
             my ($response, $error, $http_response) = @_;
 
             my $status = $http_response ? $http_response->status_line : $error;
-            $log->error("Twitch HTTP $method failed for $url: " . ($status || 'unknown error'));
+            _log_http_failure($method, $url, $status);
 
             return $callback->(
                 undef,
@@ -97,7 +142,7 @@ sub _post_json {
             }
             catch {
                 $decode_error = "$_";
-                $log->error("Twitch JSON decode failed: $_");
+                _log_json_failure($_);
             };
 
             return $callback->(
@@ -108,7 +153,7 @@ sub _post_json {
             my $api_error;
             if (ref $data eq 'HASH' && ref $data->{errors} eq 'ARRAY') {
                 my @messages = map { $_->{message} // 'unknown GraphQL error' } @{ $data->{errors} };
-                $log->error('Twitch GraphQL error: ' . join('; ', @messages));
+                _log_graphql_errors(\@messages);
                 $api_error = _error('graphql', join('; ', @messages));
             }
 
@@ -126,7 +171,7 @@ sub _graphql_data {
         my ($data, $api_error) = @_;
 
         unless (ref $data eq 'HASH' && ref $data->{data} eq 'HASH') {
-            $log->error("Twitch GraphQL invalid response: $label");
+            _log_invalid_graphql_response($label) unless $api_error;
             return $callback->(
                 undef,
                 $api_error || _error(
@@ -250,7 +295,8 @@ GRAPHQL
 
         my $token = $root && $root->{streamPlaybackAccessToken};
         unless ($token && $token->{signature} && $token->{value}) {
-            $log->error("Twitch missing live playback token for $channel");
+            _log_missing_playback_token('live', $channel)
+                unless $api_error;
             return $callback->(
                 undef,
                 $api_error || _error(
@@ -355,7 +401,8 @@ sub getVodAudioUrl {
 
         my $token = $root && $root->{videoPlaybackAccessToken};
         unless ($token && $token->{signature} && $token->{value}) {
-            $log->error("Twitch missing VOD playback token for $vod_id");
+            _log_missing_playback_token('VOD', $vod_id)
+                unless $api_error;
             return $callback->(
                 undef,
                 $api_error || _error(
@@ -407,7 +454,7 @@ GRAPHQL
 
         my $vod = $root && $root->{video};
         unless ($vod) {
-            $log->error("Twitch missing VOD metadata for $vod_id");
+            _log_missing_vod_metadata($vod_id) unless $api_error;
             return $callback->(undef, $api_error);
         }
 

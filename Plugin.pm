@@ -81,13 +81,20 @@ sub searchChannel {
     my ($vod_id, $is_explicit_vod) = _vod_id_from_search($query);
     if ($vod_id) {
         Plugins::Twitch::API::getVodMeta($vod_id, sub {
-            my ($vod) = @_;
+            my ($vod, $api_error) = @_;
 
             if ($vod) {
+                my @items = (_buildVodMetaUiItem($vod));
+                push @items, _twitchServiceImpactUiItem($client)
+                    if $api_error;
+
                 return $cb->({
-                    items => [_buildVodMetaUiItem($vod)],
+                    items => \@items,
                 });
             }
+
+            return _twitchServiceImpact($client, $cb)
+                if $api_error;
 
             return _vodDoesNotExist($client, $cb)
                 if $is_explicit_vod;
@@ -108,7 +115,10 @@ sub _searchChannelLogin {
     my ($client, $cb, $query) = @_;
 
     Plugins::Twitch::API::getChannel($query, sub {
-        my ($data) = @_;
+        my ($data, $api_error) = @_;
+
+        return _twitchServiceImpact($client, $cb)
+            if $api_error && (!$data || !$data->{user});
 
         return _channelDoesNotExist($client, $cb)
             unless $data && $data->{user};
@@ -119,9 +129,12 @@ sub _searchChannelLogin {
         _cache_live_metadata($channel);
 
         Plugins::Twitch::API::getVods($user->{login}, 1, sub {
-            my ($vod_data) = @_;
+            my ($vod_data, $vod_error) = @_;
 
             my @items = (_buildChannelUiItem($channel));
+
+            push @items, _twitchServiceImpactUiItem($client)
+                if $vod_error;
 
             for my $vod_type (
                 ['PLUGIN_TWITCH_HIGHLIGHTS', 'highlights'],
@@ -191,15 +204,20 @@ sub _buildVodMenuItem {
             my ($client, $cb) = @_;
 
             Plugins::Twitch::API::getVods($login, 100, sub {
-                my ($data) = @_;
+                my ($data, $api_error) = @_;
 
                 my $edges = _vod_edges($data, $type);
 
                 unless (@$edges) {
+                    return _twitchServiceImpact($client, $cb)
+                        if $api_error;
                     return $cb->({ items => [] });
                 }
 
                 my @items;
+
+                push @items, _twitchServiceImpactUiItem($client)
+                    if $api_error;
 
                 for my $edge (@$edges) {
                     my $item = _buildVodUiItem($edge);
@@ -266,6 +284,25 @@ sub _channelDoesNotExist {
             name => cstring($client, 'PLUGIN_TWITCH_CHANNEL_DOES_NOT_EXIST'),
             type => 'link',
         }],
+    });
+
+    return;
+}
+
+sub _twitchServiceImpactUiItem {
+    my ($client) = @_;
+
+    return {
+        name => cstring($client, 'PLUGIN_TWITCH_SERVICE_IMPACT'),
+        type => 'link',
+    };
+}
+
+sub _twitchServiceImpact {
+    my ($client, $cb) = @_;
+
+    $cb->({
+        items => [_twitchServiceImpactUiItem($client)],
     });
 
     return;

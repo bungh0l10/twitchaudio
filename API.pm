@@ -29,6 +29,15 @@ sub _json_bool {
     return $value ? \1 : \0;
 }
 
+sub _error {
+    my ($type, $message) = @_;
+
+    return {
+        type    => $type,
+        message => $message,
+    };
+}
+
 sub _request {
     my ($method, $url, $headers, $body, $callback) = @_;
 
@@ -43,7 +52,10 @@ sub _request {
             my $status = $http_response ? $http_response->status_line : $error;
             $log->error("Twitch HTTP $method failed for $url: " . ($status || 'unknown error'));
 
-            return $callback->();
+            return $callback->(
+                undef,
+                _error('http', $status || 'unknown error'),
+            );
         },
         { timeout => HTTP_TIMEOUT },
     );
@@ -70,24 +82,37 @@ sub _post_json {
         },
         encode_json($payload),
         sub {
-            my ($content) = @_;
-            return $callback->() unless $content;
+            my ($content, $request_error) = @_;
+            return $callback->(undef, $request_error) if $request_error;
+            return $callback->(
+                undef,
+                _error('empty_response', 'empty Twitch response'),
+            ) unless $content;
 
             my $data;
+            my $decode_error;
 
             try {
                 $data = decode_json($content);
             }
             catch {
+                $decode_error = "$_";
                 $log->error("Twitch JSON decode failed: $_");
             };
 
-            if ($data && $data->{errors}) {
+            return $callback->(
+                undef,
+                _error('json', $decode_error || 'invalid Twitch JSON'),
+            ) unless $data;
+
+            my $api_error;
+            if (ref $data eq 'HASH' && ref $data->{errors} eq 'ARRAY') {
                 my @messages = map { $_->{message} // 'unknown GraphQL error' } @{ $data->{errors} };
                 $log->error('Twitch GraphQL error: ' . join('; ', @messages));
+                $api_error = _error('graphql', join('; ', @messages));
             }
 
-            return $callback->($data);
+            return $callback->($data, $api_error);
         },
     );
 
@@ -98,14 +123,20 @@ sub _graphql_data {
     my ($payload, $label, $callback) = @_;
 
     _post_json($payload, sub {
-        my ($data) = @_;
+        my ($data, $api_error) = @_;
 
         unless (ref $data eq 'HASH' && ref $data->{data} eq 'HASH') {
             $log->error("Twitch GraphQL invalid response: $label");
-            return $callback->();
+            return $callback->(
+                undef,
+                $api_error || _error(
+                    'invalid_response',
+                    "invalid Twitch GraphQL response: $label",
+                ),
+            );
         }
 
-        return $callback->($data->{data});
+        return $callback->($data->{data}, $api_error);
     });
 
     return;
@@ -124,8 +155,17 @@ sub _get_audio_playlist {
     my ($url, $callback) = @_;
 
     _request('GET', $url, {}, undef, sub {
-        my ($content) = @_;
-        return $callback->(_extract_audio_m3u8($content));
+        my ($content, $request_error) = @_;
+        return $callback->(undef, $request_error) if $request_error;
+
+        my $audio_url = _extract_audio_m3u8($content);
+        return $callback->(
+            $audio_url,
+            $audio_url ? undef : _error(
+                'missing_audio_variant',
+                'Twitch audio_only variant is missing',
+            ),
+        );
     });
 
     return;
@@ -206,12 +246,18 @@ GRAPHQL
             playerType => 'embed',
         },
     }, "getAudioUrl:$channel", sub {
-        my ($root) = @_;
+        my ($root, $api_error) = @_;
 
         my $token = $root && $root->{streamPlaybackAccessToken};
         unless ($token && $token->{signature} && $token->{value}) {
             $log->error("Twitch missing live playback token for $channel");
-            return $callback->();
+            return $callback->(
+                undef,
+                $api_error || _error(
+                    'missing_playback_token',
+                    "missing live playback token for $channel",
+                ),
+            );
         }
 
         my $url = _build_uri(
@@ -305,12 +351,18 @@ sub getVodAudioUrl {
             playerType => 'embed',
         },
     }, "getVodAudioUrl:$vod_id", sub {
-        my ($root) = @_;
+        my ($root, $api_error) = @_;
 
         my $token = $root && $root->{videoPlaybackAccessToken};
         unless ($token && $token->{signature} && $token->{value}) {
             $log->error("Twitch missing VOD playback token for $vod_id");
-            return $callback->();
+            return $callback->(
+                undef,
+                $api_error || _error(
+                    'missing_playback_token',
+                    "missing VOD playback token for $vod_id",
+                ),
+            );
         }
 
         my $url = _build_uri(
@@ -351,23 +403,28 @@ query($id: ID!) {
 GRAPHQL
         variables => { id => "$vod_id" },
     }, "getVodMeta:$vod_id", sub {
-        my ($root) = @_;
+        my ($root, $api_error) = @_;
 
         my $vod = $root && $root->{video};
         unless ($vod) {
             $log->error("Twitch missing VOD metadata for $vod_id");
-            return $callback->();
+            return $callback->(undef, $api_error);
         }
 
-        return $callback->({
-            id        => $vod->{id},
-            title     => $vod->{title},
-            artist    => lc($vod->{owner}{login} // ''),
-            thumbnail => ref $vod->{thumbnailURLs} eq 'ARRAY'
-                ? ($vod->{thumbnailURLs}[0] // '')
-                : '',
-            duration  => $vod->{lengthSeconds} || 0,
-        });
+        return $callback->(
+            {
+                id        => $vod->{id},
+                title     => $vod->{title},
+                artist    => ref $vod->{owner} eq 'HASH'
+                    ? lc($vod->{owner}{login} // '')
+                    : '',
+                thumbnail => ref $vod->{thumbnailURLs} eq 'ARRAY'
+                    ? ($vod->{thumbnailURLs}[0] // '')
+                    : '',
+                duration  => $vod->{lengthSeconds} || 0,
+            },
+            $api_error,
+        );
     });
 
     return;

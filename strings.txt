@@ -29,3 +29,7 @@ PLUGIN_TWITCH_OFFLINE
 PLUGIN_TWITCH_STREAM_UNAVAILABLE
 	DE	Der Twitch-Stream ist momentan nicht verfügbar
 	EN	The Twitch stream is currently unavailable
+
+PLUGIN_TWITCH_SERVICE_IMPACT
+	DE	Twitch antwortet derzeit nicht korrekt. Mögliche Dienststörung: https://status.twitch.com/
+	EN	Twitch is not responding correctly. Possible service impact: https://status.twitch.com/

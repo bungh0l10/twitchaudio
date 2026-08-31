@@ -4,7 +4,7 @@
     <title lang="EN">Twitch Beta Plugin Repository</title>
   </details>
   <plugins>
-    <plugin minTarget="9.1" maxTarget="*" version="0.0.2.7" name="Twitch">
+    <plugin minTarget="9.1" maxTarget="*" version="0.0.2.8" name="Twitch">
       <creator>bungh0l10</creator>
       <sha>452cb38544fc6c1fbe7d736d371914c25e2a2680</sha>
       <title lang="EN">Twitch Beta</title>

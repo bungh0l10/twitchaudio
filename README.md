@@ -111,9 +111,9 @@ service-specific actions to open playable entries on Twitch and to add or
 remove live channels from **My channels**. Add and remove operations are
 validated and idempotent; duplicate channel entries are not created. Material
 shows Add only for unsaved channels and Remove only for saved channels. Saved
-channel rows and the highlight/archive categories are navigation-only items,
-so Twitch actions are only shown for the real live and VOD targets. A saved
-channel can be removed using the live entry's Material action menu.
+channel rows expose Remove directly. Their live child only exposes Open on
+Twitch; the highlight/archive categories are navigation-only and expose no
+Twitch action. Individual VOD entries expose Open on Twitch.
 
 The integration is optional and does not create or modify Material Skin's
 shared `actions.json`. Material Skin versions without `registerCustomAction`,

@@ -1,7 +1,7 @@
 <?xml version='1.0' standalone='yes'?>
 <extensions>
   <plugins>
-    <plugin minTarget="9.1" version="0.0.2.4" name="Twitch" maxTarget="*">
+    <plugin minTarget="9.1" version="0.0.2.5" name="Twitch" maxTarget="*">
       <desc lang="EN">Beta builds of the audio-only Twitch Streaming Plugin for LMS</desc>
       <url>https://github.com/bungh0l10/twitchaudio/releases/download/0.0.2.4-beta/TWITCH.zip</url>
       <sha>06612c65c6ef0b33fa0d04c9c7c0ccdf55bf6a25</sha>

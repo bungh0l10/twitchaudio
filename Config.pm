@@ -24,6 +24,7 @@ sub init {
         live_start_buffer_seconds => DEFAULT_LIVE_START_BUFFER_SECONDS,
         live_buffer_seconds => DEFAULT_LIVE_BUFFER_SECONDS,
         client_id => DEFAULT_CLIENT_ID,
+        saved_channels => [],
     });
 
     return;
@@ -92,6 +93,59 @@ sub client_id {
             && $client_id !~ /[[:space:][:cntrl:]]/;
 
     return $client_id;
+}
+
+sub _normalize_channel_login {
+    my ($login) = @_;
+
+    return unless defined $login;
+
+    $login = lc $login;
+    return unless $login =~ /^[a-z0-9_]{4,25}$/;
+
+    return $login;
+}
+
+sub saved_channels {
+    my $stored = $prefs->get('saved_channels');
+    return [] unless ref $stored eq 'ARRAY';
+
+    my (%seen, @channels);
+    for my $value (@$stored) {
+        my $login = _normalize_channel_login($value);
+        next unless $login && !$seen{$login}++;
+        push @channels, $login;
+    }
+
+    return \@channels;
+}
+
+sub add_saved_channel {
+    my ($value) = @_;
+    my $login = _normalize_channel_login($value);
+    return unless $login;
+
+    my @channels = @{ saved_channels() };
+    return 0 if grep { $_ eq $login } @channels;
+
+    push @channels, $login;
+    $prefs->set('saved_channels', \@channels);
+
+    return 1;
+}
+
+sub remove_saved_channel {
+    my ($value) = @_;
+    my $login = _normalize_channel_login($value);
+    return unless $login;
+
+    my @stored = @{ saved_channels() };
+    my @channels = grep { $_ ne $login } @stored;
+    return 0 if @channels == @stored;
+
+    $prefs->set('saved_channels', \@channels);
+
+    return 1;
 }
 
 1;

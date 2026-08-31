@@ -5,6 +5,7 @@ use warnings;
 
 use parent qw(Slim::Plugin::OPMLBased);
 
+use Slim::Control::Request ();
 use Slim::Utils::Log;
 use Slim::Utils::Strings qw(cstring string);
 use Slim::Utils::Cache;
@@ -21,6 +22,7 @@ my $log = Slim::Utils::Log->addLogCategory({
 });
 
 my $material_actions_registered;
+my $channel_commands_registered;
 
 sub getDisplayName {
     return 'PLUGIN_TWITCH_NAME';
@@ -44,7 +46,7 @@ sub _register_material_actions {
     );
     return unless $register;
 
-    my $action = {
+    my @actions = ({
         title  => string('PLUGIN_TWITCH_OPEN_ON_TWITCH'),
         icon   => 'open_in_new',
         filter => 'twitch:',
@@ -59,16 +61,70 @@ if (twitchParts) {
     );
 }
 JAVASCRIPT
-    };
+    }, {
+        title      => string('PLUGIN_TWITCH_ADD_TO_MY_CHANNELS'),
+        icon       => 'playlist_add',
+        filter     => 'twitch:live:',
+        lmscommand => [
+            'twitch', 'channels', 'add', 'url:$FAVURL',
+        ],
+    }, {
+        title      => string('PLUGIN_TWITCH_REMOVE_FROM_MY_CHANNELS'),
+        icon       => 'playlist_remove',
+        filter     => 'twitch:live:',
+        lmscommand => [
+            'twitch', 'channels', 'remove', 'url:$FAVURL',
+        ],
+    });
 
     # Material currently represents generic playable app entries as albums.
     # Register the track category too so the action remains available if the
     # item carries richer online-track metadata now or in a future LMS release.
     for my $section (qw(twitch-album twitch-track)) {
-        $register->($section, { %$action });
+        for my $action (@actions) {
+            $register->($section, { %$action });
+        }
     }
 
     $material_actions_registered = 1;
+    return;
+}
+
+sub _saved_channel_command {
+    my ($request) = @_;
+
+    my $method = $request->getParam('_method') // '';
+    my $url = $request->getParam('url') // '';
+    my ($login) = $url =~ /^twitch:live:([a-z0-9_]{4,25})$/;
+
+    unless ($login && ($method eq 'add' || $method eq 'remove')) {
+        $request->setStatusBadParams();
+        return;
+    }
+
+    my $changed = $method eq 'add'
+        ? Plugins::Twitch::Config::add_saved_channel($login)
+        : Plugins::Twitch::Config::remove_saved_channel($login);
+
+    $request->addResult('changed', $changed ? 1 : 0);
+    $request->addResult(
+        'count',
+        scalar @{ Plugins::Twitch::Config::saved_channels() },
+    );
+    $request->setStatusDone();
+
+    return;
+}
+
+sub _register_channel_commands {
+    return if $channel_commands_registered;
+
+    Slim::Control::Request::addDispatch(
+        ['twitch', 'channels', '_method'],
+        [0, 0, 1, \&_saved_channel_command],
+    );
+
+    $channel_commands_registered = 1;
     return;
 }
 
@@ -85,6 +141,7 @@ sub initPlugin {
         weight => 1,
     );
 
+    _register_channel_commands();
     _register_protocol_handlers();
 
     return;
@@ -103,7 +160,10 @@ sub handleFeed {
     my ($client, $cb) = @_;
 
     $cb->({
-        items => [ _buildMainMenu($client) ],
+        items => [
+            _buildMainMenu($client),
+            _buildSavedChannelsMenu($client),
+        ],
     });
 
     return;
@@ -312,6 +372,46 @@ sub _buildMainMenu {
         name => cstring($client, 'PLUGIN_TWITCH_SEARCH'),
         type => 'search',
         url  => \&searchChannel,
+    };
+}
+
+sub _buildSavedChannelsMenu {
+    my ($client) = @_;
+
+    return {
+        name => cstring($client, 'PLUGIN_TWITCH_MY_CHANNELS'),
+        type => 'link',
+        url  => sub {
+            my ($client, $cb) = @_;
+            my @channels = @{ Plugins::Twitch::Config::saved_channels() };
+
+            unless (@channels) {
+                return $cb->({
+                    items => [{
+                        name => cstring(
+                            $client,
+                            'PLUGIN_TWITCH_NO_SAVED_CHANNELS',
+                        ),
+                        type => 'text',
+                    }],
+                });
+            }
+
+            my @items = map {
+                my $login = $_;
+                +{
+                    name  => $login,
+                    type  => 'playlist',
+                    play  => 'twitch:live:' . $login,
+                    url   => sub {
+                        my ($client, $cb) = @_;
+                        return _searchChannelLogin($client, $cb, $login);
+                    },
+                };
+            } @channels;
+
+            return $cb->({ items => \@items });
+        },
     };
 }
 

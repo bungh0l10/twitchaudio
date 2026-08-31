@@ -59,7 +59,9 @@ Restart LMS after installation.
 
 ## User interface
 
-The plugin registers an OPML-based application named **Twitch** in the LMS radio menu. Its root contains a combined channel and VOD search action.
+The plugin registers an OPML-based application named **Twitch** in the LMS
+radio menu. Its root contains the combined channel and VOD search as its first
+entry, followed by a list of saved channels.
 
 The search accepts channel login names and the following direct VOD formats:
 
@@ -82,6 +84,11 @@ Channel searching performs the following operations asynchronously:
 4. Twitch is queried for available highlights and archives.
 5. Separate VOD menus are displayed when the corresponding category contains entries.
 
+Saved channels are stored server-wide in the `plugin.twitch` preferences. A
+saved entry contains only the normalized channel login. Opening it performs a
+fresh channel lookup through the same path as a search, so its live stream,
+current metadata, highlights and archive are rebuilt from current Twitch data.
+
 The initial channel lookup requests one VOD entry only to determine which VOD categories should be shown. Opening a category requests up to 100 entries and presents each VOD with its title, thumbnail and declared duration.
 
 The internal playable URL formats are:
@@ -95,10 +102,12 @@ These are logical LMS URLs. They are not direct Twitch media URLs.
 
 ### Material Skin integration
 
-When Material Skin provides its plugin custom-action API, Twitch registers a
-service-specific **Open on Twitch** action for playable entries in its browse
-views. The action opens a live channel or VOD on the corresponding Twitch web
-page and is shown as **Auf Twitch öffnen** when Material uses German.
+When Material Skin provides its plugin custom-action API, Twitch registers
+service-specific actions to open playable entries on Twitch and to add or
+remove live channels from **My channels**. Add and remove operations are
+validated and idempotent; duplicate channel entries are not created. Saved
+channel rows remain navigable but also expose the Material action menu, so a
+channel can be removed directly from **My channels**.
 
 The integration is optional and does not create or modify Material Skin's
 shared `actions.json`. Material Skin versions without `registerCustomAction`,
@@ -338,16 +347,17 @@ The plugin does not attempt to recover, replace or bypass audio muted by Twitch.
 
 ## Configuration
 
-The plugin initializes six LMS preferences in the `plugin.twitch` namespace:
+The plugin initializes seven LMS preferences in the `plugin.twitch` namespace:
 
 | Preference | Default | Purpose |
 | --- | ---: | --- |
 | `client_id` | `kimne78kx3ncx6brgo4mv6wki5h1ko` | Client ID sent to Twitch GraphQL requests. |
 | `cache_ttl` | `3600` | Lifetime in seconds for VOD metadata and media-URL associations. |
 | `live_cache_ttl` | `300` | Refresh interval in seconds for live-channel metadata; retained values use `cache_ttl`. |
-| `live_initial_segments` | `6` | Maximum number of segments retained from the initial live playlist. The smallest suffix covering `live_buffer_seconds` is selected. Valid range: 1–10. |
-| `live_start_buffer_seconds` | `5` | Ordered AAC required before live playback starts. Valid range: 1–120; decimal values are accepted and the effective value is capped at `live_buffer_seconds`. |
-| `live_buffer_seconds` | `10` | Target duration for downloaded live audio after playback starts. Valid range: 1–120; decimal values are accepted. |
+| `live_initial_segments` | `8` | Maximum number of segments retained from the initial live playlist. The smallest suffix covering `live_buffer_seconds` is selected. Valid range: 1–10. |
+| `live_start_buffer_seconds` | `8` | Ordered AAC required before live playback starts. Valid range: 1–120; decimal values are accepted and the effective value is capped at `live_buffer_seconds`. |
+| `live_buffer_seconds` | `13` | Target duration for downloaded live audio after playback starts. Valid range: 1–120; decimal values are accepted. |
+| `saved_channels` | `[]` | Server-wide, insertion-ordered list of normalized Twitch channel logins. Managed by the Material Skin custom actions. |
 
 Invalid or out-of-range values fall back to their defaults. There is currently no dedicated settings page; preferences must be changed through LMS configuration mechanisms or by modifying the plugin defaults.
 

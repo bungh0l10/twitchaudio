@@ -37,3 +37,19 @@ PLUGIN_TWITCH_SERVICE_IMPACT
 PLUGIN_TWITCH_OPEN_ON_TWITCH
 	DE	Auf Twitch öffnen
 	EN	Open on Twitch
+
+PLUGIN_TWITCH_MY_CHANNELS
+	DE	Meine Kanäle
+	EN	My channels
+
+PLUGIN_TWITCH_NO_SAVED_CHANNELS
+	DE	Es sind noch keine Kanäle gespeichert
+	EN	No channels have been saved yet
+
+PLUGIN_TWITCH_ADD_TO_MY_CHANNELS
+	DE	Zu meinen Kanälen hinzufügen
+	EN	Add to my channels
+
+PLUGIN_TWITCH_REMOVE_FROM_MY_CHANNELS
+	DE	Aus meinen Kanälen entfernen
+	EN	Remove from my channels

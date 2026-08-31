@@ -88,7 +88,9 @@ Saved channels are stored server-wide in the `plugin.twitch` preferences. A
 saved entry contains only the normalized channel login. Opening it performs a
 fresh channel lookup through the same path as a search, so its live stream,
 current metadata, channel image, highlights and archive are rebuilt from
-current Twitch data. Channel images are also shown on the saved-channel rows.
+current Twitch data. Saved-channel rows are sorted alphabetically. Channel
+images are shown both on those rows and on their Live, Highlights and Archive
+entries.
 
 The initial channel lookup requests one VOD entry only to determine which VOD categories should be shown. Opening a category requests up to 100 entries and presents each VOD with its title, thumbnail and declared duration.
 
@@ -110,10 +112,11 @@ When Material Skin provides its plugin custom-action API, Twitch registers
 service-specific actions to open playable entries on Twitch and to add or
 remove live channels from **My channels**. Add and remove operations are
 validated and idempotent; duplicate channel entries are not created. Material
-shows Add only for unsaved channels and Remove only for saved channels. Saved
-channel rows expose Remove directly. Their normal child feed keeps the live
-entry open-only; highlight/archive categories are navigation-only and expose
-no Twitch action. Individual VOD entries expose Open on Twitch.
+shows Add only for unsaved search results and Remove only for search results
+that are already saved. Rows below **My channels** are navigation-only and are
+never exposed as playable albums or playlists. Their live child is open-only;
+highlight/archive categories expose no Twitch action. Individual VOD entries
+expose Open on Twitch.
 
 The integration is optional and does not create or modify Material Skin's
 shared `actions.json`. Material Skin versions without `registerCustomAction`,
@@ -363,7 +366,7 @@ The plugin initializes seven LMS preferences in the `plugin.twitch` namespace:
 | `live_initial_segments` | `8` | Maximum number of segments retained from the initial live playlist. The smallest suffix covering `live_buffer_seconds` is selected. Valid range: 1–10. |
 | `live_start_buffer_seconds` | `8` | Ordered AAC required before live playback starts. Valid range: 1–120; decimal values are accepted and the effective value is capped at `live_buffer_seconds`. |
 | `live_buffer_seconds` | `13` | Target duration for downloaded live audio after playback starts. Valid range: 1–120; decimal values are accepted. |
-| `saved_channels` | `[]` | Server-wide, insertion-ordered list of normalized Twitch channel logins. Managed by the Material Skin custom actions. |
+| `saved_channels` | `[]` | Server-wide list of normalized Twitch channel logins, displayed alphabetically. Managed by the Material Skin custom actions. |
 
 Invalid or out-of-range values fall back to their defaults. There is currently no dedicated settings page; preferences must be changed through LMS configuration mechanisms or by modifying the plugin defaults.
 

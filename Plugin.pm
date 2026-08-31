@@ -256,6 +256,7 @@ sub _searchChannelLogin {
                     $channel,
                     cstring($client, $title_key),
                     $type,
+                    $context,
                 );
             }
 
@@ -301,13 +302,17 @@ sub _vod_edges {
 }
 
 sub _buildVodMenuItem {
-    my ($login, $channel, $title, $type) = @_;
+    my ($login, $channel, $title, $type, $context) = @_;
+
+    my $cover = $context && $context eq 'saved_channel'
+        ? _artwork_variant($channel->{cover}, "saved-$type")
+        : $channel->{cover};
 
     return {
         name  => $title,
         type  => 'link',
-        icon  => $channel->{cover},
-        image => $channel->{cover},
+        icon  => $cover,
+        image => $cover,
 
         url => sub {
             my ($client, $cb) = @_;
@@ -415,20 +420,11 @@ sub _buildSavedChannelsMenu {
 sub _buildSavedChannelMenuItem {
     my ($login, $cover) = @_;
 
-    # Material suppresses child artwork when it has the exact same URL as the
-    # parent artwork. Keep the same Twitch image but give the saved-list row a
-    # stable URL variant so Live, Highlights and Archive retain their images.
-    my $saved_cover = $cover;
-    if (defined $saved_cover && length $saved_cover) {
-        $saved_cover .= $saved_cover =~ /\?/ ? '&twitchaudio=saved'
-            : '?twitchaudio=saved';
-    }
+    my $saved_cover = _artwork_variant($cover, 'saved-channel');
 
     my $item = {
-        name          => $login,
-        type          => 'playlist',
-        play          => 'twitch:live:' . $login,
-        favorites_url => 'twitch:live-saved:' . $login,
+        name => $login,
+        type => 'link',
         url => sub {
             my ($client, $cb) = @_;
             return _searchChannelLogin(
@@ -551,6 +547,10 @@ sub _buildChannelUiItem {
             . ($is_saved ? 'saved:' : 'unsaved:')
             . $channel->{artist};
 
+    my $cover = $context && $context eq 'saved_channel'
+        ? _artwork_variant($channel->{cover}, 'saved-live')
+        : $channel->{cover};
+
     return {
         type            => 'audio',
         favorites_type  => 'audio',
@@ -558,13 +558,24 @@ sub _buildChannelUiItem {
         play            => 'twitch:live:' . $channel->{artist},
         line1           => $channel->{artist},
         line2           => $channel->{title},
-        icon            => $channel->{cover},
-        image           => $channel->{cover},
+        icon            => $cover,
+        image           => $cover,
         on_select       => 'play',
         duration        => 0,
         title           => $channel->{title},
         favorites_title => $channel->{title},
     };
+}
+
+sub _artwork_variant {
+    my ($cover, $variant) = @_;
+
+    return $cover unless defined $cover && length $cover;
+    return $cover unless defined $variant && length $variant;
+
+    return $cover
+        . ($cover =~ /\?/ ? '&' : '?')
+        . 'twitchaudio=' . $variant;
 }
 
 sub _buildChannelData {

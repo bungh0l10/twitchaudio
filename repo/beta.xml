@@ -1,7 +1,7 @@
 <?xml version='1.0' standalone='yes'?>
 <extensions>
   <plugins>
-    <plugin version="0.0.2.9" name="Twitch" minTarget="9.1" maxTarget="*">
+    <plugin version="0.0.2.10" name="Twitch" minTarget="9.1" maxTarget="*">
       <category>musicservices</category>
       <sha>6c5e41ac1f767c7ad564742c758a30100cb1128a</sha>
       <creator>bungh0l10</creator>

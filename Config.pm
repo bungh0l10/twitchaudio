@@ -117,7 +117,7 @@ sub saved_channels {
         push @channels, $login;
     }
 
-    return \@channels;
+    return [sort @channels];
 }
 
 sub add_saved_channel {

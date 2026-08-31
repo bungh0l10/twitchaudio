@@ -87,7 +87,8 @@ Channel searching performs the following operations asynchronously:
 Saved channels are stored server-wide in the `plugin.twitch` preferences. A
 saved entry contains only the normalized channel login. Opening it performs a
 fresh channel lookup through the same path as a search, so its live stream,
-current metadata, highlights and archive are rebuilt from current Twitch data.
+current metadata, channel image, highlights and archive are rebuilt from
+current Twitch data. Channel images are also shown on the saved-channel rows.
 
 The initial channel lookup requests one VOD entry only to determine which VOD categories should be shown. Opening a category requests up to 100 entries and presents each VOD with its title, thumbnail and declared duration.
 

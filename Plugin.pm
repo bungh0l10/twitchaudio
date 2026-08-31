@@ -297,6 +297,7 @@ sub _buildVodMenuItem {
     return {
         name  => $title,
         type  => 'playlist',
+        icon  => $channel->{cover},
         image => $channel->{cover},
 
         url => sub {
@@ -397,22 +398,75 @@ sub _buildSavedChannelsMenu {
                 });
             }
 
-            my @items = map {
-                my $login = $_;
-                +{
-                    name  => $login,
-                    type  => 'playlist',
-                    play  => 'twitch:live:' . $login,
-                    url   => sub {
-                        my ($client, $cb) = @_;
-                        return _searchChannelLogin($client, $cb, $login);
-                    },
-                };
-            } @channels;
-
-            return $cb->({ items => \@items });
+            return _loadSavedChannelItems($client, \@channels, $cb);
         },
     };
+}
+
+sub _buildSavedChannelMenuItem {
+    my ($login, $cover) = @_;
+
+    my $item = {
+        name => $login,
+        type => 'playlist',
+        play => 'twitch:live:' . $login,
+        url  => sub {
+            my ($client, $cb) = @_;
+            return _searchChannelLogin($client, $cb, $login);
+        },
+    };
+
+    if (defined $cover && length $cover) {
+        $item->{icon} = $cover;
+        $item->{image} = $cover;
+    }
+
+    return $item;
+}
+
+sub _loadSavedChannelItems {
+    my ($client, $channels, $cb) = @_;
+
+    my @items;
+    my $pending = scalar @$channels;
+    my $cache = Slim::Utils::Cache->new;
+
+    for my $index (0 .. $#$channels) {
+        my $item_index = $index;
+        my $login = $channels->[$index];
+        my $cached = $cache->get("twitch:live:$login");
+
+        my $complete = sub {
+            my ($cover) = @_;
+            $items[$item_index] = _buildSavedChannelMenuItem(
+                $login,
+                $cover,
+            );
+
+            $cb->({ items => \@items }) unless --$pending;
+            return;
+        };
+
+        if (ref $cached eq 'HASH' && $cached->{cover}) {
+            $complete->($cached->{cover});
+            next;
+        }
+
+        Plugins::Twitch::API::getChannel($login, sub {
+            my ($data) = @_;
+            my $user = $data && $data->{user};
+
+            if ($user) {
+                my $channel = _buildChannelData($client, $user);
+                _cache_live_metadata($channel);
+                return $complete->($channel->{cover});
+            }
+
+            return $complete->();
+        });
+    }
+
+    return;
 }
 
 sub _channelDoesNotExist {
@@ -469,6 +523,7 @@ sub _buildChannelUiItem {
         play            => 'twitch:live:' . $channel->{artist},
         line1           => $channel->{artist},
         line2           => $channel->{title},
+        icon            => $channel->{cover},
         image           => $channel->{cover},
         on_select       => 'play',
         duration        => 0,

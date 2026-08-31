@@ -93,6 +93,19 @@ twitch:vod:<numeric-video-id>
 
 These are logical LMS URLs. They are not direct Twitch media URLs.
 
+### Material Skin integration
+
+When Material Skin provides its plugin custom-action API, Twitch registers a
+service-specific **Open on Twitch** action for playable entries in its browse
+views. The action opens a live channel or VOD on the corresponding Twitch web
+page and is shown as **Auf Twitch öffnen** when Material uses German.
+
+The integration is optional and does not create or modify Material Skin's
+shared `actions.json`. Material Skin versions without `registerCustomAction`,
+and all other LMS controllers, continue to use the normal Twitch menus without
+the extra action. Full service-specific category handling requires Material
+Skin 6.4.8 or newer.
+
 ## Playback pipeline
 
 Playback is divided into four layers so Twitch API access, LMS protocol integration, HLS session management and container parsing remain independent.

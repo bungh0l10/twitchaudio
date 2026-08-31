@@ -6,7 +6,7 @@ use warnings;
 use parent qw(Slim::Plugin::OPMLBased);
 
 use Slim::Utils::Log;
-use Slim::Utils::Strings qw(cstring);
+use Slim::Utils::Strings qw(cstring string);
 use Slim::Utils::Cache;
 
 use Plugins::Twitch::API;
@@ -20,6 +20,8 @@ my $log = Slim::Utils::Log->addLogCategory({
     logGroups    => 'SCANNER',
 });
 
+my $material_actions_registered;
+
 sub getDisplayName {
     return 'PLUGIN_TWITCH_NAME';
 }
@@ -31,6 +33,42 @@ sub _register_protocol_handlers {
     Slim::Player::ProtocolHandlers->registerHandler(
         twitchhls => 'Plugins::Twitch::HLSStream'
     );
+    return;
+}
+
+sub _register_material_actions {
+    return if $material_actions_registered;
+
+    my $register = Plugins::MaterialSkin::Plugin->can(
+        'registerCustomAction'
+    );
+    return unless $register;
+
+    my $action = {
+        title  => string('PLUGIN_TWITCH_OPEN_ON_TWITCH'),
+        icon   => 'open_in_new',
+        filter => 'twitch:',
+        script => <<'JAVASCRIPT',
+var twitchUrl = "$FAVURL";
+var twitchParts = twitchUrl.match(/^twitch:(live|vod):([a-z0-9_]+)$/);
+if (twitchParts) {
+    window.open(
+        "https://www.twitch.tv/"
+            + (twitchParts[1] === "vod" ? "videos/" : "")
+            + encodeURIComponent(twitchParts[2])
+    );
+}
+JAVASCRIPT
+    };
+
+    # Material currently represents generic playable app entries as albums.
+    # Register the track category too so the action remains available if the
+    # item carries richer online-track metadata now or in a future LMS release.
+    for my $section (qw(twitch-album twitch-track)) {
+        $register->($section, { %$action });
+    }
+
+    $material_actions_registered = 1;
     return;
 }
 
@@ -57,6 +95,7 @@ sub initPlugin {
 # by Twitch earlier in the alphabetically ordered startup pass.
 sub postinitPlugin {
     _register_protocol_handlers();
+    _register_material_actions();
     return;
 }
 
@@ -294,7 +333,7 @@ sub _twitchServiceImpactUiItem {
 
     return {
         name => cstring($client, 'PLUGIN_TWITCH_SERVICE_IMPACT'),
-        type => 'link',
+        type => 'text',
     };
 }
 

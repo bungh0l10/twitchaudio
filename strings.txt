@@ -33,3 +33,7 @@ PLUGIN_TWITCH_STREAM_UNAVAILABLE
 PLUGIN_TWITCH_SERVICE_IMPACT
 	DE	Twitch antwortet derzeit nicht korrekt. Mögliche Dienststörung: https://status.twitch.com/
 	EN	Twitch is not responding correctly. Possible service impact: https://status.twitch.com/
+
+PLUGIN_TWITCH_OPEN_ON_TWITCH
+	DE	Auf Twitch öffnen
+	EN	Open on Twitch

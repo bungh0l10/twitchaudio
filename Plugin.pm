@@ -6,7 +6,6 @@ use warnings;
 use parent qw(Slim::Plugin::OPMLBased);
 
 use Slim::Control::Request ();
-use Slim::Control::XMLBrowser ();
 use Slim::Utils::Log;
 use Slim::Utils::Strings qw(cstring string);
 use Slim::Utils::Cache;
@@ -47,7 +46,7 @@ sub _register_material_actions {
     );
     return unless $register;
 
-    my $open_action = {
+    my @actions = ({
         title  => string('PLUGIN_TWITCH_OPEN_ON_TWITCH'),
         icon   => 'open_in_new',
         filter => 'twitch:',
@@ -64,9 +63,7 @@ if (twitchParts) {
     );
 }
 JAVASCRIPT
-    };
-
-    my @channel_actions = ({
+    }, {
         title      => string('PLUGIN_TWITCH_ADD_TO_MY_CHANNELS'),
         icon       => 'playlist_add',
         filter     => 'twitch:live-unsaved:',
@@ -86,16 +83,9 @@ JAVASCRIPT
     # Register the track category too so the action remains available if the
     # item carries richer online-track metadata now or in a future LMS release.
     for my $section (qw(twitch-album twitch-track)) {
-        for my $action ($open_action, @channel_actions) {
+        for my $action (@actions) {
             $register->($section, { %$action });
         }
-    }
-
-    # Saved-channel submenus use a dedicated browse command. Their playable
-    # children may be opened on Twitch, but Add/Remove belongs to the saved
-    # channel row one level above.
-    for my $section (qw(twitch_saved-album twitch_saved-track)) {
-        $register->($section, { %$open_action });
     }
 
     $material_actions_registered = 1;
@@ -142,38 +132,8 @@ sub _register_channel_commands {
         ['twitch', 'channels', '_method'],
         [0, 0, 1, \&_saved_channel_command],
     );
-    Slim::Control::Request::addDispatch(
-        ['twitch_saved', 'items', '_index', '_quantity'],
-        [0, 1, 1, \&_saved_channel_browse],
-    );
 
     $channel_commands_registered = 1;
-    return;
-}
-
-sub _saved_channel_browse {
-    my ($request) = @_;
-
-    my $login = $request->getParam('login') // '';
-    unless (_is_channel_login($login)) {
-        $request->setStatusBadParams();
-        return;
-    }
-
-    Slim::Control::XMLBrowser::cliQuery(
-        'twitch_saved',
-        sub {
-            my ($client, $cb) = @_;
-            return _searchChannelLogin(
-                $client,
-                $cb,
-                $login,
-                'saved_channel',
-            );
-        },
-        $request,
-    );
-
     return;
 }
 
@@ -299,11 +259,7 @@ sub _searchChannelLogin {
                 );
             }
 
-            my $feed = { items => \@items };
-            $feed->{query} = { login => $query }
-                if $context && $context eq 'saved_channel';
-
-            $cb->($feed);
+            $cb->({ items => \@items });
 
             return;
         });
@@ -473,12 +429,6 @@ sub _buildSavedChannelMenuItem {
         type          => 'playlist',
         play          => 'twitch:live:' . $login,
         favorites_url => 'twitch:live-saved:' . $login,
-        itemActions   => {
-            items => {
-                command => ['twitch_saved', 'items'],
-                fixedParams => { login => $login },
-            },
-        },
         url => sub {
             my ($client, $cb) = @_;
             return _searchChannelLogin(

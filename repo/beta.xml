@@ -4,7 +4,7 @@
     <title lang="EN">Twitch Beta Plugin Repository</title>
   </details>
   <plugins>
-    <plugin name="Twitch" version="0.0.2.8" minTarget="9.1" maxTarget="*">
+    <plugin name="Twitch" version="0.0.2.9" minTarget="9.1" maxTarget="*">
       <sha>df50a353ae157ce1726f50b25a64bf4ad151295b</sha>
       <title lang="EN">Twitch Beta</title>
       <url>https://github.com/bungh0l10/twitchaudio/releases/download/0.0.2.8-beta/TWITCH.zip</url>

@@ -100,15 +100,20 @@ twitch:vod:<numeric-video-id>
 ```
 
 These are logical LMS URLs. They are not direct Twitch media URLs.
+Material uses the internal `twitch:live-unsaved:` and
+`twitch:live-saved:` aliases to select the correct channel action; the
+protocol handler normalizes both aliases to the canonical live URL.
 
 ### Material Skin integration
 
 When Material Skin provides its plugin custom-action API, Twitch registers
 service-specific actions to open playable entries on Twitch and to add or
 remove live channels from **My channels**. Add and remove operations are
-validated and idempotent; duplicate channel entries are not created. Saved
-channel rows remain navigable but also expose the Material action menu, so a
-channel can be removed directly from **My channels**.
+validated and idempotent; duplicate channel entries are not created. Material
+shows Add only for unsaved channels and Remove only for saved channels. Saved
+channel rows and the highlight/archive categories are navigation-only items,
+so Twitch actions are only shown for the real live and VOD targets. A saved
+channel can be removed using the live entry's Material action menu.
 
 The integration is optional and does not create or modify Material Skin's
 shared `actions.json`. Material Skin versions without `registerCustomAction`,

@@ -21,6 +21,14 @@ my $log = logger('plugin.twitch');
 
 use constant METADATA_RETRY_DELAY => 30;
 
+sub _canonical_twitch_url {
+    my ($url) = @_;
+    return $url unless defined $url;
+
+    $url =~ s/^twitch:live-(?:saved|unsaved):/twitch:live:/;
+    return $url;
+}
+
 sub _metadata_refresh_allowed {
     my ($song) = @_;
     return unless $song;
@@ -93,8 +101,10 @@ sub _song_for_media_id {
     for my $method (qw(track currentTrack)) {
         next unless $song->can($method);
         my $track = $song->$method or next;
-        return $song if $track->can('url')
-            && ($track->url || '') =~ /^twitch:\Q$id\E(?:[|?#]|$)/;
+        next unless $track->can('url');
+
+        my $url = _canonical_twitch_url($track->url || '');
+        return $song if $url =~ /^twitch:\Q$id\E(?:[|?#]|$)/;
     }
     return;
 }
@@ -105,6 +115,8 @@ sub canSeek          { 0 }
 
 sub getMetadataFor {
     my ($class, $client, $url, $force, $song) = @_;
+    $url = _canonical_twitch_url($url);
+
     my $meta = Plugins::Twitch::HLSStream->getMetadataFor(
         $client,
         $url,
@@ -140,6 +152,8 @@ sub scanUrl {
     my ($class, $uri, $args) = @_;
 
     return unless $uri && $args && $args->{client};
+
+    $uri = _canonical_twitch_url($uri);
 
     my $client = $args->{client};
 

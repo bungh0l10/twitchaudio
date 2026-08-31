@@ -48,7 +48,7 @@ sub _is_vod_song {
         my $track = $song->$method or next;
         my $url = $track->can('url') ? $track->url : '';
         return 1 if $url =~ /^twitch:vod:/;
-        return 0 if $url =~ /^twitch:live:/;
+        return 0 if $url =~ /^twitch:live(?:-(?:saved|unsaved))?:/;
     }
 
     # Unknown streams must retain live semantics: no duration or progress bar.
@@ -69,7 +69,9 @@ sub _twitch_media_id {
 
     for my $candidate (@urls) {
         next unless defined $candidate;
-        return ($1, $2) if $candidate =~ /^twitch:(live|vod):([^|?#]+)/;
+        return ('live', $1) if $candidate =~
+            /^twitch:live(?:-(?:saved|unsaved))?:([^|?#]+)/;
+        return ('vod', $1) if $candidate =~ /^twitch:vod:([^|?#]+)/;
         my $embedded = Plugins::Twitch::HLS::URL::media_id($candidate);
         return ($1, $2) if defined $embedded
             && $embedded =~ /^(live|vod):([^|?#]+)/;

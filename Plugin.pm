@@ -52,7 +52,9 @@ sub _register_material_actions {
         filter => 'twitch:',
         script => <<'JAVASCRIPT',
 var twitchUrl = "$FAVURL";
-var twitchParts = twitchUrl.match(/^twitch:(live|vod):([a-z0-9_]+)$/);
+var twitchParts = twitchUrl.match(
+    /^twitch:(live(?:-(?:saved|unsaved))?|vod):([a-z0-9_]+)$/
+);
 if (twitchParts) {
     window.open(
         "https://www.twitch.tv/"
@@ -64,14 +66,14 @@ JAVASCRIPT
     }, {
         title      => string('PLUGIN_TWITCH_ADD_TO_MY_CHANNELS'),
         icon       => 'playlist_add',
-        filter     => 'twitch:live:',
+        filter     => 'twitch:live-unsaved:',
         lmscommand => [
             'twitch', 'channels', 'add', 'url:$FAVURL',
         ],
     }, {
         title      => string('PLUGIN_TWITCH_REMOVE_FROM_MY_CHANNELS'),
         icon       => 'playlist_remove',
-        filter     => 'twitch:live:',
+        filter     => 'twitch:live-saved:',
         lmscommand => [
             'twitch', 'channels', 'remove', 'url:$FAVURL',
         ],
@@ -95,9 +97,16 @@ sub _saved_channel_command {
 
     my $method = $request->getParam('_method') // '';
     my $url = $request->getParam('url') // '';
-    my ($login) = $url =~ /^twitch:live:([a-z0-9_]{4,25})$/;
+    my ($state, $login) = $url =~
+        /^twitch:live-(saved|unsaved):([a-z0-9_]{4,25})$/;
 
-    unless ($login && ($method eq 'add' || $method eq 'remove')) {
+    my $valid_transition = (
+        $method eq 'add' && ($state // '') eq 'unsaved'
+    ) || (
+        $method eq 'remove' && ($state // '') eq 'saved'
+    );
+
+    unless ($login && $valid_transition) {
         $request->setStatusBadParams();
         return;
     }
@@ -296,7 +305,7 @@ sub _buildVodMenuItem {
 
     return {
         name  => $title,
-        type  => 'playlist',
+        type  => 'link',
         icon  => $channel->{cover},
         image => $channel->{cover},
 
@@ -406,19 +415,27 @@ sub _buildSavedChannelsMenu {
 sub _buildSavedChannelMenuItem {
     my ($login, $cover) = @_;
 
+    # Material suppresses child artwork when it has the exact same URL as the
+    # parent artwork. Keep the same Twitch image but give the saved-list row a
+    # stable URL variant so Live, Highlights and Archive retain their images.
+    my $saved_cover = $cover;
+    if (defined $saved_cover && length $saved_cover) {
+        $saved_cover .= $saved_cover =~ /\?/ ? '&twitchaudio=saved'
+            : '?twitchaudio=saved';
+    }
+
     my $item = {
         name => $login,
-        type => 'playlist',
-        play => 'twitch:live:' . $login,
+        type => 'link',
         url  => sub {
             my ($client, $cb) = @_;
             return _searchChannelLogin($client, $cb, $login);
         },
     };
 
-    if (defined $cover && length $cover) {
-        $item->{icon} = $cover;
-        $item->{image} = $cover;
+    if (defined $saved_cover && length $saved_cover) {
+        $item->{icon} = $saved_cover;
+        $item->{image} = $saved_cover;
     }
 
     return $item;
@@ -517,9 +534,18 @@ sub _vodDoesNotExist {
 sub _buildChannelUiItem {
     my ($channel) = @_;
 
+    my $is_saved = grep {
+        $_ eq $channel->{artist}
+    } @{ Plugins::Twitch::Config::saved_channels() };
+
+    my $material_url = 'twitch:live-'
+        . ($is_saved ? 'saved:' : 'unsaved:')
+        . $channel->{artist};
+
     return {
         type            => 'audio',
         favorites_type  => 'audio',
+        favorites_url   => $material_url,
         play            => 'twitch:live:' . $channel->{artist},
         line1           => $channel->{artist},
         line2           => $channel->{title},

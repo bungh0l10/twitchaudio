@@ -6,6 +6,7 @@ use warnings;
 use parent qw(Slim::Plugin::OPMLBased);
 
 use Slim::Control::Request ();
+use Slim::Control::XMLBrowser ();
 use Slim::Utils::Log;
 use Slim::Utils::Strings qw(cstring string);
 use Slim::Utils::Cache;
@@ -92,11 +93,9 @@ JAVASCRIPT
     return;
 }
 
-sub _saved_channel_command {
-    my ($request) = @_;
+sub _change_saved_channel {
+    my ($method, $url) = @_;
 
-    my $method = $request->getParam('_method') // '';
-    my $url = $request->getParam('url') // '';
     my ($state, $login) = $url =~
         /^twitch:live-(saved|unsaved):([a-z0-9_]{4,25})$/;
 
@@ -106,21 +105,107 @@ sub _saved_channel_command {
         $method eq 'remove' && ($state // '') eq 'saved'
     );
 
-    unless ($login && $valid_transition) {
-        $request->setStatusBadParams();
-        return;
-    }
+    return unless $login && $valid_transition;
 
     my $changed = $method eq 'add'
         ? Plugins::Twitch::Config::add_saved_channel($login)
         : Plugins::Twitch::Config::remove_saved_channel($login);
 
-    $request->addResult('changed', $changed ? 1 : 0);
-    $request->addResult(
-        'count',
-        scalar @{ Plugins::Twitch::Config::saved_channels() },
+    return {
+        changed => $changed ? 1 : 0,
+        count   => scalar @{ Plugins::Twitch::Config::saved_channels() },
+    };
+}
+
+sub _saved_channel_command {
+    my ($request) = @_;
+
+    my $result = _change_saved_channel(
+        $request->getParam('_method') // '',
+        $request->getParam('url') // '',
     );
+
+    unless ($result) {
+        $request->setStatusBadParams();
+        return;
+    }
+
+    $request->addResult('changed', $result->{changed});
+    $request->addResult('count', $result->{count});
     $request->setStatusDone();
+
+    return;
+}
+
+sub _saved_channel_actions_feed {
+    my ($client, $login, $menu_mode) = @_;
+
+    my $url = "twitch:live-saved:$login";
+    my $item = {
+        name => cstring(
+            $client,
+            'PLUGIN_TWITCH_REMOVE_FROM_MY_CHANNELS',
+        ),
+        type => 'link',
+    };
+
+    if ($menu_mode) {
+        $item->{isContextMenu} = 1;
+        $item->{refresh} = 1;
+        $item->{jive} = {
+            nextWindow => 'parent',
+            actions => {
+                go => {
+                    player => 0,
+                    cmd => ['twitch', 'channels', 'remove'],
+                    params => { url => $url },
+                },
+            },
+        };
+    } else {
+        $item->{url} = sub {
+            my ($action_client, $cb) = @_;
+
+            _change_saved_channel('remove', $url);
+            $cb->({
+                items => [{
+                    name => cstring($action_client, 'COMPLETE'),
+                    type => 'text',
+                }],
+            });
+            return;
+        };
+    }
+
+    return { items => [$item] };
+}
+
+sub _saved_channel_actions_command {
+    my ($request) = @_;
+
+    my $login = $request->getParam('login') // '';
+    unless ($login =~ /^[a-z0-9_]{4,25}$/) {
+        $request->setStatusBadParams();
+        return;
+    }
+
+    $request->addParam('_index', 0)
+        unless defined $request->getParam('_index');
+    $request->addParam('_quantity', 10)
+        unless defined $request->getParam('_quantity');
+
+    Slim::Control::XMLBrowser::cliQuery(
+        'twitch_channel_actions',
+        sub {
+            my ($client, $cb) = @_;
+            $cb->(_saved_channel_actions_feed(
+                $client,
+                $login,
+                $request->getParam('menu'),
+            ));
+        },
+        $request,
+    );
 
     return;
 }
@@ -131,6 +216,10 @@ sub _register_channel_commands {
     Slim::Control::Request::addDispatch(
         ['twitch', 'channels', '_method'],
         [0, 0, 1, \&_saved_channel_command],
+    );
+    Slim::Control::Request::addDispatch(
+        ['twitch_channel_actions', 'items', '_index', '_quantity'],
+        [1, 1, 1, \&_saved_channel_actions_command],
     );
 
     $channel_commands_registered = 1;
@@ -425,6 +514,12 @@ sub _buildSavedChannelMenuItem {
     my $item = {
         name => $login,
         type => 'link',
+        itemActions => {
+            info => {
+                command => ['twitch_channel_actions', 'items'],
+                fixedParams => { login => $login },
+            },
+        },
         url => sub {
             my ($client, $cb) = @_;
             return _searchChannelLogin(

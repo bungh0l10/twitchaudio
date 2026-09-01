@@ -90,7 +90,9 @@ fresh channel lookup through the same path as a search, so its live stream,
 current metadata, channel image, highlights and archive are rebuilt from
 current Twitch data. Saved-channel rows are sorted alphabetically. Channel
 images are shown both on those rows and on their Live, Highlights and Archive
-entries.
+entries. Each saved-channel row also exposes **Remove from My channels** as a
+standard SlimBrowse context action. The row remains navigation-only, and the
+action is available to controllers independently of Material Skin.
 
 The initial channel lookup requests one VOD entry only to determine which VOD categories should be shown. Opening a category requests up to 100 entries and presents each VOD with its title, thumbnail and declared duration.
 

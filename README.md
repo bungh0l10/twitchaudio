@@ -91,8 +91,10 @@ current metadata, channel image, highlights and archive are rebuilt from
 current Twitch data. Saved-channel rows are sorted alphabetically. Channel
 images are shown both on those rows and on their Live, Highlights and Archive
 entries. Each saved-channel row also exposes **Remove from My channels** as a
-standard SlimBrowse context action. The row remains navigation-only, and the
-action is available to controllers independently of Material Skin.
+standard SlimBrowse context action. Channel search results use the same
+controller-independent mechanism to expose either **Add to My channels** or
+**Remove from My channels**, according to their current saved state. Saved
+channel rows remain navigation-only.
 
 The initial channel lookup requests one VOD entry only to determine which VOD categories should be shown. Opening a category requests up to 100 entries and presents each VOD with its title, thumbnail and declared duration.
 
@@ -104,27 +106,27 @@ twitch:vod:<numeric-video-id>
 ```
 
 These are logical LMS URLs. They are not direct Twitch media URLs.
-Material uses the internal `twitch:live-unsaved:` and
-`twitch:live-saved:` aliases to select the correct channel action; the
-protocol handler normalizes both aliases to the canonical live URL.
+Channel search items use the internal `twitch:live-unsaved:` and
+`twitch:live-saved:` aliases to select the correct context action; the protocol
+handler normalizes both aliases to the canonical live URL for playback.
 
 ### Material Skin integration
 
-When Material Skin provides its plugin custom-action API, Twitch registers
-service-specific actions to open playable entries on Twitch and to add or
-remove live channels from **My channels**. Add and remove operations are
-validated and idempotent; duplicate channel entries are not created. Material
-shows Add only for unsaved search results and Remove only for search results
-that are already saved. Rows below **My channels** are navigation-only and are
-never exposed as playable albums or playlists. Their live child is open-only;
-highlight/archive categories expose no Twitch action. Individual VOD entries
-expose Open on Twitch.
+Add and remove operations are provided as standard SlimBrowse context actions,
+are validated and idempotent, and do not create duplicate channel entries.
+Unsaved search results expose Add, while saved search results and rows below
+**My channels** expose Remove. The saved rows are navigation-only and are never
+exposed as playable albums or playlists.
 
-The integration is optional and does not create or modify Material Skin's
-shared `actions.json`. Material Skin versions without `registerCustomAction`,
-and all other LMS controllers, continue to use the normal Twitch menus without
-the extra action. Full service-specific category handling requires Material
-Skin 6.4.8 or newer.
+When Material Skin provides its plugin custom-action API, Twitch additionally
+registers the service-specific **Open on Twitch** action for playable live and
+VOD entries. A saved channel's live child is open-only; highlight and archive
+categories expose no Twitch action.
+
+The Material integration is optional and does not create or modify Material
+Skin's shared `actions.json`. Material Skin versions without
+`registerCustomAction`, and all other SlimBrowse controllers, still expose Add
+and Remove. The additional Open action requires Material Skin 6.4.8 or newer.
 
 ## Playback pipeline
 

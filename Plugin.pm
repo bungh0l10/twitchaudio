@@ -64,20 +64,6 @@ if (twitchParts) {
     );
 }
 JAVASCRIPT
-    }, {
-        title      => string('PLUGIN_TWITCH_ADD_TO_MY_CHANNELS'),
-        icon       => 'playlist_add',
-        filter     => 'twitch:live-unsaved:',
-        lmscommand => [
-            'twitch', 'channels', 'add', 'url:$FAVURL',
-        ],
-    }, {
-        title      => string('PLUGIN_TWITCH_REMOVE_FROM_MY_CHANNELS'),
-        icon       => 'playlist_remove',
-        filter     => 'twitch:live-saved:',
-        lmscommand => [
-            'twitch', 'channels', 'remove', 'url:$FAVURL',
-        ],
     });
 
     # Material currently represents generic playable app entries as albums.
@@ -93,7 +79,7 @@ JAVASCRIPT
     return;
 }
 
-sub _change_saved_channel {
+sub _channel_action_details {
     my ($method, $url) = @_;
 
     my ($state, $login) = $url =~
@@ -107,9 +93,25 @@ sub _change_saved_channel {
 
     return unless $login && $valid_transition;
 
+    return {
+        login => $login,
+        method => $method,
+        title => $method eq 'add'
+            ? 'PLUGIN_TWITCH_ADD_TO_MY_CHANNELS'
+            : 'PLUGIN_TWITCH_REMOVE_FROM_MY_CHANNELS',
+        url => $url,
+    };
+}
+
+sub _change_saved_channel {
+    my ($method, $url) = @_;
+
+    my $details = _channel_action_details($method, $url);
+    return unless $details;
+
     my $changed = $method eq 'add'
-        ? Plugins::Twitch::Config::add_saved_channel($login)
-        : Plugins::Twitch::Config::remove_saved_channel($login);
+        ? Plugins::Twitch::Config::add_saved_channel($details->{login})
+        : Plugins::Twitch::Config::remove_saved_channel($details->{login});
 
     return {
         changed => $changed ? 1 : 0,
@@ -137,14 +139,16 @@ sub _saved_channel_command {
     return;
 }
 
-sub _saved_channel_actions_feed {
-    my ($client, $login, $menu_mode) = @_;
+sub _channel_actions_feed {
+    my ($client, $method, $url, $menu_mode) = @_;
 
-    my $url = "twitch:live-saved:$login";
+    my $details = _channel_action_details($method, $url);
+    return unless $details;
+
     my $item = {
         name => cstring(
             $client,
-            'PLUGIN_TWITCH_REMOVE_FROM_MY_CHANNELS',
+            $details->{title},
         ),
         type => 'link',
     };
@@ -157,8 +161,8 @@ sub _saved_channel_actions_feed {
             actions => {
                 go => {
                     player => 0,
-                    cmd => ['twitch', 'channels', 'remove'],
-                    params => { url => $url },
+                    cmd => ['twitch', 'channels', $details->{method}],
+                    params => { url => $details->{url} },
                 },
             },
         };
@@ -166,7 +170,10 @@ sub _saved_channel_actions_feed {
         $item->{url} = sub {
             my ($action_client, $cb) = @_;
 
-            _change_saved_channel('remove', $url);
+            _change_saved_channel(
+                $details->{method},
+                $details->{url},
+            );
             $cb->({
                 items => [{
                     name => cstring($action_client, 'COMPLETE'),
@@ -180,11 +187,12 @@ sub _saved_channel_actions_feed {
     return { items => [$item] };
 }
 
-sub _saved_channel_actions_command {
+sub _channel_actions_command {
     my ($request) = @_;
 
-    my $login = $request->getParam('login') // '';
-    unless ($login =~ /^[a-z0-9_]{4,25}$/) {
+    my $method = $request->getParam('method') // '';
+    my $url = $request->getParam('url') // '';
+    unless (_channel_action_details($method, $url)) {
         $request->setStatusBadParams();
         return;
     }
@@ -198,9 +206,10 @@ sub _saved_channel_actions_command {
         'twitch_channel_actions',
         sub {
             my ($client, $cb) = @_;
-            $cb->(_saved_channel_actions_feed(
+            $cb->(_channel_actions_feed(
                 $client,
-                $login,
+                $method,
+                $url,
                 $request->getParam('menu'),
             ));
         },
@@ -219,7 +228,7 @@ sub _register_channel_commands {
     );
     Slim::Control::Request::addDispatch(
         ['twitch_channel_actions', 'items', '_index', '_quantity'],
-        [1, 1, 1, \&_saved_channel_actions_command],
+        [1, 1, 1, \&_channel_actions_command],
     );
 
     $channel_commands_registered = 1;
@@ -517,7 +526,10 @@ sub _buildSavedChannelMenuItem {
         itemActions => {
             info => {
                 command => ['twitch_channel_actions', 'items'],
-                fixedParams => { login => $login },
+                fixedParams => {
+                    method => 'remove',
+                    url => "twitch:live-saved:$login",
+                },
             },
         },
         url => sub {
@@ -636,7 +648,7 @@ sub _buildChannelUiItem {
         $_ eq $channel->{artist}
     } @{ Plugins::Twitch::Config::saved_channels() };
 
-    my $material_url = $context && $context eq 'saved_channel'
+    my $action_url = $context && $context eq 'saved_channel'
         ? 'twitch:live:' . $channel->{artist}
         : 'twitch:live-'
             . ($is_saved ? 'saved:' : 'unsaved:')
@@ -646,10 +658,10 @@ sub _buildChannelUiItem {
         ? _artwork_variant($channel->{cover}, 'saved-live')
         : $channel->{cover};
 
-    return {
+    my $item = {
         type            => 'audio',
         favorites_type  => 'audio',
-        favorites_url   => $material_url,
+        favorites_url   => $action_url,
         play            => 'twitch:live:' . $channel->{artist},
         line1           => $channel->{artist},
         line2           => $channel->{title},
@@ -660,6 +672,20 @@ sub _buildChannelUiItem {
         title           => $channel->{title},
         favorites_title => $channel->{title},
     };
+
+    unless ($context && $context eq 'saved_channel') {
+        $item->{itemActions} = {
+            info => {
+                command => ['twitch_channel_actions', 'items'],
+                fixedParams => {
+                    method => $is_saved ? 'remove' : 'add',
+                    url => $action_url,
+                },
+            },
+        };
+    }
+
+    return $item;
 }
 
 sub _artwork_variant {

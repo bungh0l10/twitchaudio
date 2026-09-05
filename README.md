@@ -112,21 +112,25 @@ handler normalizes both aliases to the canonical live URL for playback.
 
 ### Material Skin integration
 
-Add and remove operations are provided as standard SlimBrowse context actions,
-are validated and idempotent, and do not create duplicate channel entries.
-Unsaved search results expose Add, while saved search results and rows below
-**My channels** expose Remove. The saved rows are navigation-only and are never
-exposed as playable albums or playlists.
+When Material Skin provides its plugin custom-action API, Twitch registers
+service-specific actions to open playable entries on Twitch and to add or
+remove live channels from **My channels**. Material shows Add only for unsaved
+search results and Remove only for search results that are already saved. A
+saved channel's live child is open-only; highlight and archive categories
+expose no Twitch action. Individual VOD entries expose Open on Twitch.
 
-When Material Skin provides its plugin custom-action API, Twitch additionally
-registers the service-specific **Open on Twitch** action for playable live and
-VOD entries. A saved channel's live child is open-only; highlight and archive
-categories expose no Twitch action.
+Add and Remove are also provided as standard SlimBrowse context actions. This
+keeps both operations available on Squeezebox controllers, alternative skins
+and Material Skin versions without the custom-action API. Both paths use the
+same validated, idempotent LMS commands and do not create duplicate channel
+entries. Rows below **My channels** remain navigation-only and expose Remove
+through their SlimBrowse context menu.
 
 The Material integration is optional and does not create or modify Material
 Skin's shared `actions.json`. Material Skin versions without
 `registerCustomAction`, and all other SlimBrowse controllers, still expose Add
-and Remove. The additional Open action requires Material Skin 6.4.8 or newer.
+and Remove through SlimBrowse. Material's native Open, Add and Remove actions
+require Material Skin 6.4.8 or newer.
 
 If Twitch returns an API or GraphQL error, the non-clickable service-impact
 message exposes **Open Twitch status** through its standard SlimBrowse context

@@ -67,6 +67,20 @@ if (twitchParts) {
     );
 }
 JAVASCRIPT
+    }, {
+        title      => string('PLUGIN_TWITCH_ADD_TO_MY_CHANNELS'),
+        icon       => 'playlist_add',
+        filter     => 'twitch:live-unsaved:',
+        lmscommand => [
+            'twitch', 'channels', 'add', 'url:$FAVURL',
+        ],
+    }, {
+        title      => string('PLUGIN_TWITCH_REMOVE_FROM_MY_CHANNELS'),
+        icon       => 'playlist_remove',
+        filter     => 'twitch:live-saved:',
+        lmscommand => [
+            'twitch', 'channels', 'remove', 'url:$FAVURL',
+        ],
     });
 
     # Material currently represents generic playable app entries as albums.

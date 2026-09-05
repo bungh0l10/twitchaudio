@@ -59,7 +59,9 @@ Restart LMS after installation.
 
 ## User interface
 
-The plugin registers an OPML-based application named **Twitch** in the LMS radio menu. Its root contains a combined channel and VOD search action.
+The plugin registers an OPML-based application named **Twitch** in the LMS
+radio menu. Its root contains the combined channel and VOD search as its first
+entry, followed by a list of saved channels.
 
 The search accepts channel login names and the following direct VOD formats:
 
@@ -82,6 +84,18 @@ Channel searching performs the following operations asynchronously:
 4. Twitch is queried for available highlights and archives.
 5. Separate VOD menus are displayed when the corresponding category contains entries.
 
+Saved channels are stored server-wide in the `plugin.twitch` preferences. A
+saved entry contains only the normalized channel login. Opening it performs a
+fresh channel lookup through the same path as a search, so its live stream,
+current metadata, channel image, highlights and archive are rebuilt from
+current Twitch data. Saved-channel rows are sorted alphabetically. Channel
+images are shown both on those rows and on their Live, Highlights and Archive
+entries. Each saved-channel row also exposes **Remove from My channels** as a
+standard SlimBrowse context action. Channel search results use the same
+controller-independent mechanism to expose either **Add to My channels** or
+**Remove from My channels**, according to their current saved state. Saved
+channel rows remain navigation-only.
+
 The initial channel lookup requests one VOD entry only to determine which VOD categories should be shown. Opening a category requests up to 100 entries and presents each VOD with its title, thumbnail and declared duration.
 
 The internal playable URL formats are:
@@ -92,6 +106,32 @@ twitch:vod:<numeric-video-id>
 ```
 
 These are logical LMS URLs. They are not direct Twitch media URLs.
+Channel search items use the internal `twitch:live-unsaved:` and
+`twitch:live-saved:` aliases to select the correct context action; the protocol
+handler normalizes both aliases to the canonical live URL for playback.
+
+### Material Skin integration
+
+Add and remove operations are provided as standard SlimBrowse context actions,
+are validated and idempotent, and do not create duplicate channel entries.
+Unsaved search results expose Add, while saved search results and rows below
+**My channels** expose Remove. The saved rows are navigation-only and are never
+exposed as playable albums or playlists.
+
+When Material Skin provides its plugin custom-action API, Twitch additionally
+registers the service-specific **Open on Twitch** action for playable live and
+VOD entries. A saved channel's live child is open-only; highlight and archive
+categories expose no Twitch action.
+
+The Material integration is optional and does not create or modify Material
+Skin's shared `actions.json`. Material Skin versions without
+`registerCustomAction`, and all other SlimBrowse controllers, still expose Add
+and Remove. The additional Open action requires Material Skin 6.4.8 or newer.
+
+If Twitch returns an API or GraphQL error, the non-clickable service-impact
+message exposes **Open Twitch status** through its standard SlimBrowse context
+menu. Material opens the official status page in a new browser tab without
+turning the message itself into a navigation or playback item.
 
 ## Playback pipeline
 
@@ -325,16 +365,17 @@ The plugin does not attempt to recover, replace or bypass audio muted by Twitch.
 
 ## Configuration
 
-The plugin initializes six LMS preferences in the `plugin.twitch` namespace:
+The plugin initializes seven LMS preferences in the `plugin.twitch` namespace:
 
 | Preference | Default | Purpose |
 | --- | ---: | --- |
 | `client_id` | `kimne78kx3ncx6brgo4mv6wki5h1ko` | Client ID sent to Twitch GraphQL requests. |
 | `cache_ttl` | `3600` | Lifetime in seconds for VOD metadata and media-URL associations. |
 | `live_cache_ttl` | `300` | Refresh interval in seconds for live-channel metadata; retained values use `cache_ttl`. |
-| `live_initial_segments` | `6` | Maximum number of segments retained from the initial live playlist. The smallest suffix covering `live_buffer_seconds` is selected. Valid range: 1–10. |
-| `live_start_buffer_seconds` | `5` | Ordered AAC required before live playback starts. Valid range: 1–120; decimal values are accepted and the effective value is capped at `live_buffer_seconds`. |
-| `live_buffer_seconds` | `10` | Target duration for downloaded live audio after playback starts. Valid range: 1–120; decimal values are accepted. |
+| `live_initial_segments` | `8` | Maximum number of segments retained from the initial live playlist. The smallest suffix covering `live_buffer_seconds` is selected. Valid range: 1–10. |
+| `live_start_buffer_seconds` | `8` | Ordered AAC required before live playback starts. Valid range: 1–120; decimal values are accepted and the effective value is capped at `live_buffer_seconds`. |
+| `live_buffer_seconds` | `13` | Target duration for downloaded live audio after playback starts. Valid range: 1–120; decimal values are accepted. |
+| `saved_channels` | `[]` | Server-wide list of normalized Twitch channel logins, displayed alphabetically. Managed by the Material Skin custom actions. |
 
 Invalid or out-of-range values fall back to their defaults. There is currently no dedicated settings page; preferences must be changed through LMS configuration mechanisms or by modifying the plugin defaults.
 

@@ -24,6 +24,9 @@ my $log = Slim::Utils::Log->addLogCategory({
 
 my $material_actions_registered;
 my $channel_commands_registered;
+my $status_action_command_registered;
+
+my $TWITCH_STATUS_URL = 'https://status.twitch.com/';
 
 sub getDisplayName {
     return 'PLUGIN_TWITCH_NAME';
@@ -235,6 +238,53 @@ sub _register_channel_commands {
     return;
 }
 
+sub _twitch_status_actions_feed {
+    my ($client) = @_;
+
+    return {
+        items => [{
+            name => cstring(
+                $client,
+                'PLUGIN_TWITCH_OPEN_STATUS',
+            ),
+            type    => 'link',
+            weblink => $TWITCH_STATUS_URL,
+        }],
+    };
+}
+
+sub _twitch_status_actions_command {
+    my ($request) = @_;
+
+    $request->addParam('_index', 0)
+        unless defined $request->getParam('_index');
+    $request->addParam('_quantity', 10)
+        unless defined $request->getParam('_quantity');
+
+    Slim::Control::XMLBrowser::cliQuery(
+        'twitch_status_actions',
+        sub {
+            my ($client, $cb) = @_;
+            $cb->(_twitch_status_actions_feed($client));
+        },
+        $request,
+    );
+
+    return;
+}
+
+sub _register_status_action_command {
+    return if $status_action_command_registered;
+
+    Slim::Control::Request::addDispatch(
+        ['twitch_status_actions', 'items', '_index', '_quantity'],
+        [1, 1, 1, \&_twitch_status_actions_command],
+    );
+
+    $status_action_command_registered = 1;
+    return;
+}
+
 sub initPlugin {
     my ($class) = @_;
 
@@ -249,6 +299,7 @@ sub initPlugin {
     );
 
     _register_channel_commands();
+    _register_status_action_command();
     _register_protocol_handlers();
 
     return;
@@ -615,6 +666,11 @@ sub _twitchServiceImpactUiItem {
     return {
         name => cstring($client, 'PLUGIN_TWITCH_SERVICE_IMPACT'),
         type => 'text',
+        itemActions => {
+            info => {
+                command => ['twitch_status_actions', 'items'],
+            },
+        },
     };
 }
 

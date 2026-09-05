@@ -128,6 +128,11 @@ Skin's shared `actions.json`. Material Skin versions without
 `registerCustomAction`, and all other SlimBrowse controllers, still expose Add
 and Remove. The additional Open action requires Material Skin 6.4.8 or newer.
 
+If Twitch returns an API or GraphQL error, the non-clickable service-impact
+message exposes **Open Twitch status** through its standard SlimBrowse context
+menu. Material opens the official status page in a new browser tab without
+turning the message itself into a navigation or playback item.
+
 ## Playback pipeline
 
 Playback is divided into four layers so Twitch API access, LMS protocol integration, HLS session management and container parsing remain independent.

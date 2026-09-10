@@ -565,10 +565,10 @@ sub _buildSavedChannelsMenu {
     my ($client) = @_;
 
     return {
-        name => cstring($client, 'PLUGIN_TWITCH_MY_CHANNELS') . " \x{b7} "
+        name => cstring($client, 'PLUGIN_TWITCH_MY_CHANNELS')
             . (Plugins::Twitch::Config::use_personal_channels($client)
-                ? $client->name
-                : cstring($client, 'PLUGIN_TWITCH_CHANNELS_SHARED')),
+                ? " \x{b7} " . $client->name
+                : ''),
         type => 'link',
         url  => sub {
             my ($client, $cb) = @_;

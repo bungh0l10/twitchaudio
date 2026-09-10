@@ -46,10 +46,6 @@ PLUGIN_TWITCH_MY_CHANNELS
 	DE	Meine Kanäle
 	EN	My channels
 
-PLUGIN_TWITCH_CHANNELS_SHARED
-	DE	Gemeinsam
-	EN	Shared
-
 PLUGIN_TWITCH_CHANNEL_LIST
 	DE	Meine Kanäle
 	EN	My channels

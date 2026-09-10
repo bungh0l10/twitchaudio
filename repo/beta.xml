@@ -1,7 +1,7 @@
 <?xml version='1.0' standalone='yes'?>
 <extensions>
   <plugins>
-    <plugin minTarget="9.1" maxTarget="*" version="0.0.3.1.2" name="Twitch">
+    <plugin minTarget="9.1" maxTarget="*" version="0.0.3.1.3" name="Twitch">
       <desc lang="EN">Beta builds of the audio-only Twitch Streaming Plugin for LMS</desc>
       <title lang="EN">Twitch Beta</title>
       <creator>bungh0l10</creator>

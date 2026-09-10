@@ -105,8 +105,8 @@ the next activation. The shared list is never overwritten by switching modes.
 
 Both lists remain stored on the LMS server; separate lists belong to player
 IDs, not browsers, controllers or synchronization groups. Renaming a player
-does not change its list. The menu identifies the active list as **My channels ·
-Shared** or **My channels · Player name**. Reopen the Twitch menu after changing
+does not change its list. The shared list is labeled **My channels**; a separate
+list is labeled **My channels · Player name**. Reopen the Twitch menu after changing
 the setting or selected player to refresh its label and Add/Remove actions.
 Commands sent without a player continue to use the shared list.
 

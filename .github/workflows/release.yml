@@ -20,6 +20,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
         with:
+          ref: ${{ github.sha }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set Version
@@ -35,8 +36,8 @@ jobs:
 
           version="$(grep -oP '(?<=<version>)[^<]+' install.xml || true)"
 
-          if [[ -z "${version}" ]]; then
-            printf '%s\n' "Version not found in install.xml" >&2
+          if [[ ! "${version}" =~ ^[0-9]+(\.[0-9]+){2,}$ ]]; then
+            printf '%s\n' "install.xml must contain a numeric, dot-separated version" >&2
             exit 1
           fi
 
@@ -45,13 +46,14 @@ jobs:
       - name: Check if tag already exists
         id: tag-check
         shell: bash
+        env:
+          VERSION: ${{ steps.set-version.outputs.version }}
         run: |
           set -euo pipefail
 
-          version="${{ steps.set-version.outputs.version }}"
-
-          if git ls-remote --tags origin "refs/tags/${version}" | grep -q .; then
-            printf '%s\n' "Tag ${version} already exists"
+          tag_refs="$(git ls-remote --tags origin "refs/tags/${VERSION}")"
+          if [[ -n "${tag_refs}" ]]; then
+            printf '%s\n' "Tag ${VERSION} already exists"
             printf 'exists=true\n' >> "${GITHUB_OUTPUT}"
           else
             printf 'exists=false\n' >> "${GITHUB_OUTPUT}"
@@ -73,10 +75,14 @@ jobs:
 
           archive_entries="$(unzip -Z1 TWITCH.zip)"
 
-          if ! grep -qx 'install.xml' <<< "${archive_entries}"; then
-            printf '%s\n' "install.xml missing from TWITCH.zip" >&2
-            exit 1
-          fi
+          for required in install.xml Plugin.pm Config.pm PlayerSettings.pm strings.txt \
+            HTML/EN/plugins/twitch/settings/player.html; do
+            if ! grep -Fxq "${required}" <<< "${archive_entries}"; then
+              printf '%s\n' "${required} missing from TWITCH.zip" >&2
+              exit 1
+            fi
+          done
+          unzip -p TWITCH.zip install.xml | cmp - install.xml
 
           if grep -Eq '^(\.github|repo)/' <<< "${archive_entries}"; then
             printf '%s\n' "Release-only files found in TWITCH.zip" >&2
@@ -100,17 +106,36 @@ jobs:
         if: steps.tag-check.outputs.exists == 'false'
         id: tag
         shell: bash
+        env:
+          VERSION: ${{ steps.set-version.outputs.version }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
 
-          version="${{ steps.set-version.outputs.version }}"
-          url="https://github.com/${{ github.repository }}/releases/download/${version}"
+          url="https://github.com/${REPOSITORY}/releases/download/${VERSION}"
 
-          perl repo/release.pl repo/repo.xml "${version}" TWITCH.zip "${url}"
+          perl repo/release.pl repo/repo.xml "${VERSION}" TWITCH.zip "${url}"
+
+      - name: Create Release
+        if: steps.tag-check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.set-version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Version ${{ steps.set-version.outputs.version }}
+          body: TWITCH plugin release
+          draft: false
+          prerelease: false
+          files: TWITCH.zip
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Repository
         if: steps.tag-check.outputs.exists == 'false'
         shell: bash
+        env:
+          VERSION: ${{ steps.set-version.outputs.version }}
         run: |
           set -euo pipefail
 
@@ -122,23 +147,9 @@ jobs:
           if git diff --cached --quiet; then
             printf '%s\n' "No changes to commit"
           else
-            git commit -m "Update repo.xml for release ${{ steps.set-version.outputs.version }}"
+            git commit -m "Update repo.xml for release ${VERSION}"
             git push origin HEAD:main
           fi
-
-      - name: Create Release
-        if: steps.tag-check.outputs.exists == 'false'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.set-version.outputs.version }}
-          name: Version ${{ steps.set-version.outputs.version }}
-          body: TWITCH plugin release
-          draft: false
-          prerelease: false
-          files: TWITCH.zip
-          fail_on_unmatched_files: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Skip message (already released)
         if: steps.tag-check.outputs.exists == 'true'

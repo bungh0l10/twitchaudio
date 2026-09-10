@@ -46,6 +46,22 @@ PLUGIN_TWITCH_MY_CHANNELS
 	DE	Meine Kanäle
 	EN	My channels
 
+PLUGIN_TWITCH_CHANNEL_LIST
+	DE	Meine Kanäle
+	EN	My channels
+
+PLUGIN_TWITCH_USE_SHARED_CHANNELS
+	DE	Gemeinsame Kanalliste verwenden (Standard)
+	EN	Use shared channel list (default)
+
+PLUGIN_TWITCH_USE_PERSONAL_CHANNELS
+	DE	Eigene Kanalliste für diesen Player verwenden
+	EN	Use a separate channel list for this player
+
+PLUGIN_TWITCH_CHANNEL_LIST_DESC
+	DE	Standardmäßig teilen sich alle Player eine Kanalliste. Beim ersten Aktivieren der eigenen Liste werden die gemeinsamen Kanäle einmalig kopiert. Danach gelten Hinzufügen und Entfernen nur für diesen Player. Beim Zurückschalten bleibt die eigene Liste für eine spätere Nutzung erhalten, auch wenn sie leer ist. Beide Listen werden auf dem Server gespeichert. Öffne das Twitch-Menü nach dem Wechsel erneut.
+	EN	By default, all players share one channel list. Enabling a separate list for the first time copies the shared channels once. Adding and removing then apply only to this player. Switching back preserves the separate list for later use, even when empty. Both lists are stored on the server. Reopen the Twitch menu after switching.
+
 PLUGIN_TWITCH_NO_SAVED_CHANNELS
 	DE	Es sind noch keine Kanäle gespeichert
 	EN	No channels have been saved yet

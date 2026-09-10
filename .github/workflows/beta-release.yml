@@ -25,7 +25,7 @@ jobs:
       - name: Checkout develop
         uses: actions/checkout@v6
         with:
-          ref: develop
+          ref: ${{ github.sha }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Validate beta version
@@ -53,7 +53,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
+          tag_refs="$(git ls-remote --tags origin "refs/tags/${TAG}")"
+          if [[ -n "${tag_refs}" ]]; then
             printf '%s\n' "Tag ${TAG} already exists" >&2
             exit 1
           fi
@@ -73,10 +74,17 @@ jobs:
           set -euo pipefail
 
           git archive --worktree-attributes --format=zip --output=TWITCH.zip HEAD
-          zip -q -u TWITCH.zip install.xml
+          zip -q TWITCH.zip install.xml
 
           archive_entries="$(unzip -Z1 TWITCH.zip)"
-          grep -qx 'install.xml' <<< "${archive_entries}"
+          for required in install.xml Plugin.pm Config.pm PlayerSettings.pm strings.txt \
+            HTML/EN/plugins/twitch/settings/player.html; do
+            if ! grep -Fxq "${required}" <<< "${archive_entries}"; then
+              printf '%s\n' "${required} missing from TWITCH.zip" >&2
+              exit 1
+            fi
+          done
+          unzip -p TWITCH.zip install.xml | cmp - install.xml
 
           if grep -Eq '^(\.github|repo)/' <<< "${archive_entries}"; then
             printf '%s\n' "Release-only files found in TWITCH.zip" >&2
@@ -95,16 +103,17 @@ jobs:
         env:
           BETA_VERSION: ${{ steps.version.outputs.version }}
           TAG: ${{ steps.version.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          url="https://github.com/${{ github.repository }}/releases/download/${TAG}"
+          url="https://github.com/${REPOSITORY}/releases/download/${TAG}"
           perl repo/release.pl repo/beta.xml "${BETA_VERSION}" TWITCH.zip "${url}"
 
       - name: Create GitHub pre-release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          target_commitish: develop
+          target_commitish: ${{ github.sha }}
           name: Beta ${{ steps.version.outputs.version }}
           body: Beta build from the develop branch. Not intended for production use.
           draft: false
@@ -123,5 +132,9 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add repo/beta.xml
-          git commit -m "Update beta feed for ${BETA_VERSION}"
-          git push origin HEAD:develop
+          if git diff --cached --quiet; then
+            printf '%s\n' "No changes to commit"
+          else
+            git commit -m "Update beta feed for ${BETA_VERSION}"
+            git push origin HEAD:develop
+          fi

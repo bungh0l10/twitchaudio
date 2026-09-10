@@ -84,7 +84,7 @@ Channel searching performs the following operations asynchronously:
 4. Twitch is queried for available highlights and archives.
 5. Separate VOD menus are displayed when the corresponding category contains entries.
 
-Saved channels are stored server-wide in the `plugin.twitch` preferences. A
+Saved channels are shared server-wide by default in the `plugin.twitch` preferences. A
 saved entry contains only the normalized channel login. Opening it performs a
 fresh channel lookup through the same path as a search, so its live stream,
 current metadata, channel image, highlights and archive are rebuilt from
@@ -95,6 +95,20 @@ standard SlimBrowse context action. Channel search results use the same
 controller-independent mechanism to expose either **Add to My channels** or
 **Remove from My channels**, according to their current saved state. Saved
 channel rows remain navigation-only.
+
+Under **Settings > Player > Twitch**, select **Use a separate channel list for
+this player** to manage an independent **My channels** list. Enabling it for
+the first time copies the current shared list once. Subsequent additions and
+removals affect only the selected player's list. Switching back to the shared
+list preserves the separate list, including an intentionally empty list, for
+the next activation. The shared list is never overwritten by switching modes.
+
+Both lists remain stored on the LMS server; separate lists belong to player
+IDs, not browsers, controllers or synchronization groups. Renaming a player
+does not change its list. The menu identifies the active list as **My channels ·
+Shared** or **My channels · Player name**. Reopen the Twitch menu after changing
+the setting or selected player to refresh its label and Add/Remove actions.
+Commands sent without a player continue to use the shared list.
 
 The initial channel lookup requests one VOD entry only to determine which VOD categories should be shown. Opening a category requests up to 100 entries and presents each VOD with its title, thumbnail and declared duration.
 
@@ -379,9 +393,18 @@ The plugin initializes seven LMS preferences in the `plugin.twitch` namespace:
 | `live_initial_segments` | `8` | Maximum number of segments retained from the initial live playlist. The smallest suffix covering `live_buffer_seconds` is selected. Valid range: 1–10. |
 | `live_start_buffer_seconds` | `8` | Ordered AAC required before live playback starts. Valid range: 1–120; decimal values are accepted and the effective value is capped at `live_buffer_seconds`. |
 | `live_buffer_seconds` | `13` | Target duration for downloaded live audio after playback starts. Valid range: 1–120; decimal values are accepted. |
-| `saved_channels` | `[]` | Server-wide list of normalized Twitch channel logins, displayed alphabetically. Managed by the Material Skin custom actions. |
+| `saved_channels` | `[]` | Shared list of normalized Twitch channel logins, displayed alphabetically. Managed through channel context actions. |
 
-Invalid or out-of-range values fall back to their defaults. There is currently no dedicated settings page; preferences must be changed through LMS configuration mechanisms or by modifying the plugin defaults.
+The **Twitch** player settings page controls these additional player preferences
+in the same namespace:
+
+| Player preference | Default | Purpose |
+| --- | ---: | --- |
+| `use_personal_channels` | `0` (when unset) | Use the shared list (`0`) or the player's separate list (`1`). Invalid values are rejected. |
+| `saved_channels` | Unset until first activation | Independent channel list, initialized with a copy of the shared list on first activation and preserved across mode changes. |
+
+Invalid or out-of-range playback values fall back to their defaults. Playback
+preferences have no dedicated settings page and use LMS configuration mechanisms.
 
 The VOD standby-resume and detected audio-information caches use `cache_ttl`.
 
@@ -409,6 +432,7 @@ Resolved Twitch HLS URLs contain temporary playback credentials and are logged o
 | --- | --- |
 | `Plugin.pm` | LMS application registration, channel search, menu construction and VOD browsing. |
 | `Config.pm` | Plugin preference defaults and validation. |
+| `PlayerSettings.pm` | LMS player settings page for selecting the shared or separate channel list. |
 | `API.pm` | Asynchronous Twitch GraphQL, playback-token and master-playlist requests. |
 | `ProtocolHandler.pm` | Logical `twitch:` protocol, LMS scanning, URL identity mapping and initial metadata. |
 | `HLSStream.pm` | LMS non-blocking stream adapter, duration/seek integration, metadata exposure and standby resume. |

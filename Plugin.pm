@@ -121,18 +121,18 @@ sub _channel_action_details {
 }
 
 sub _change_saved_channel {
-    my ($method, $url) = @_;
+    my ($method, $url, $client) = @_;
 
     my $details = _channel_action_details($method, $url);
     return unless $details;
 
     my $changed = $method eq 'add'
-        ? Plugins::Twitch::Config::add_saved_channel($details->{login})
-        : Plugins::Twitch::Config::remove_saved_channel($details->{login});
+        ? Plugins::Twitch::Config::add_saved_channel($details->{login}, $client)
+        : Plugins::Twitch::Config::remove_saved_channel($details->{login}, $client);
 
     return {
         changed => $changed ? 1 : 0,
-        count   => scalar @{ Plugins::Twitch::Config::saved_channels() },
+        count   => scalar @{ Plugins::Twitch::Config::saved_channels($client) },
     };
 }
 
@@ -142,6 +142,7 @@ sub _saved_channel_command {
     my $result = _change_saved_channel(
         $request->getParam('_method') // '',
         $request->getParam('url') // '',
+        $request->client,
     );
 
     unless ($result) {
@@ -177,6 +178,7 @@ sub _channel_actions_feed {
             nextWindow => 'parent',
             actions => {
                 go => {
+                    # SlimBrowse uses 0 to address the current player.
                     player => 0,
                     cmd => ['twitch', 'channels', $details->{method}],
                     params => { url => $details->{url} },
@@ -190,6 +192,7 @@ sub _channel_actions_feed {
             _change_saved_channel(
                 $details->{method},
                 $details->{url},
+                $action_client,
             );
             $cb->({
                 items => [{
@@ -304,6 +307,11 @@ sub initPlugin {
 
     Plugins::Twitch::Config::init();
 
+    if (main::WEBUI()) {
+        require Plugins::Twitch::PlayerSettings;
+        Plugins::Twitch::PlayerSettings->new;
+    }
+
     $class->SUPER::initPlugin(
         feed   => \&handleFeed,
         tag    => 'twitch',
@@ -402,7 +410,7 @@ sub _searchChannelLogin {
         Plugins::Twitch::API::getVods($user->{login}, 1, sub {
             my ($vod_data, $vod_error) = @_;
 
-            my @items = (_buildChannelUiItem($channel, $context));
+            my @items = (_buildChannelUiItem($channel, $context, $client));
 
             push @items, _twitchServiceImpactUiItem($client)
                 if $vod_error;
@@ -557,11 +565,14 @@ sub _buildSavedChannelsMenu {
     my ($client) = @_;
 
     return {
-        name => cstring($client, 'PLUGIN_TWITCH_MY_CHANNELS'),
+        name => cstring($client, 'PLUGIN_TWITCH_MY_CHANNELS') . " \x{b7} "
+            . (Plugins::Twitch::Config::use_personal_channels($client)
+                ? $client->name
+                : cstring($client, 'PLUGIN_TWITCH_CHANNELS_SHARED')),
         type => 'link',
         url  => sub {
             my ($client, $cb) = @_;
-            my @channels = @{ Plugins::Twitch::Config::saved_channels() };
+            my @channels = @{ Plugins::Twitch::Config::saved_channels($client) };
 
             unless (@channels) {
                 return $cb->({
@@ -712,11 +723,11 @@ sub _vodDoesNotExist {
 }
 
 sub _buildChannelUiItem {
-    my ($channel, $context) = @_;
+    my ($channel, $context, $client) = @_;
 
     my $is_saved = grep {
         $_ eq $channel->{artist}
-    } @{ Plugins::Twitch::Config::saved_channels() };
+    } @{ Plugins::Twitch::Config::saved_channels($client) };
 
     my $action_url = $context && $context eq 'saved_channel'
         ? 'twitch:live:' . $channel->{artist}

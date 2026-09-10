@@ -15,6 +15,7 @@ use constant {
 };
 
 my $prefs = preferences('plugin.twitch');
+my $channel_preferences_registered;
 
 sub init {
     $prefs->init({
@@ -26,6 +27,17 @@ sub init {
         client_id => DEFAULT_CLIENT_ID,
         saved_channels => [],
     });
+
+    unless ($channel_preferences_registered) {
+        $prefs->setValidate({ validator => 'intlimit', low => 0, high => 1 },
+            'use_personal_channels');
+        # Also handle changes made through LMS's playerpref command.
+        $prefs->setChange(sub {
+            my ($pref, $value, $client) = @_;
+            _initialize_personal_channels($client) if $client && $value;
+        }, 'use_personal_channels');
+        $channel_preferences_registered = 1;
+    }
 
     return;
 }
@@ -106,8 +118,32 @@ sub _normalize_channel_login {
     return $login;
 }
 
+sub use_personal_channels {
+    my ($client) = @_;
+    return $client
+        && ($prefs->client($client)->get('use_personal_channels') // 0) eq '1';
+}
+
+sub _initialize_personal_channels {
+    my ($client) = @_;
+    my $client_prefs = $prefs->client($client);
+    # An existing empty list is intentional and must never be re-seeded.
+    unless (defined $client_prefs->get('saved_channels')) {
+        $client_prefs->set('saved_channels', [@{ saved_channels() }]);
+    }
+    return $client_prefs;
+}
+
+sub _channel_prefs {
+    my ($client) = @_;
+    return use_personal_channels($client)
+        ? _initialize_personal_channels($client)
+        : $prefs;
+}
+
 sub saved_channels {
-    my $stored = $prefs->get('saved_channels');
+    my ($client) = @_;
+    my $stored = _channel_prefs($client)->get('saved_channels');
     return [] unless ref $stored eq 'ARRAY';
 
     my (%seen, @channels);
@@ -121,29 +157,29 @@ sub saved_channels {
 }
 
 sub add_saved_channel {
-    my ($value) = @_;
+    my ($value, $client) = @_;
     my $login = _normalize_channel_login($value);
     return unless $login;
 
-    my @channels = @{ saved_channels() };
+    my @channels = @{ saved_channels($client) };
     return 0 if grep { $_ eq $login } @channels;
 
     push @channels, $login;
-    $prefs->set('saved_channels', \@channels);
+    _channel_prefs($client)->set('saved_channels', \@channels);
 
     return 1;
 }
 
 sub remove_saved_channel {
-    my ($value) = @_;
+    my ($value, $client) = @_;
     my $login = _normalize_channel_login($value);
     return unless $login;
 
-    my @stored = @{ saved_channels() };
+    my @stored = @{ saved_channels($client) };
     my @channels = grep { $_ ne $login } @stored;
     return 0 if @channels == @stored;
 
-    $prefs->set('saved_channels', \@channels);
+    _channel_prefs($client)->set('saved_channels', \@channels);
 
     return 1;
 }

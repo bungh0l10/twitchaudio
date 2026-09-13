@@ -9,5 +9,3 @@ https://raw.githubusercontent.com/bungh0l10/twitchaudio/main/repo/repo.xml
 ```
 
 Install **Twitch**, restart LMS and open **Apps > Twitch**.
-
-[Documentation and help](https://github.com/bungh0l10/twitchaudio/wiki) · [License](LICENSE)

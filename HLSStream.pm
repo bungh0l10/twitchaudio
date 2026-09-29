@@ -287,8 +287,20 @@ sub getMetadataFor {
     $song ||= _song_for_url($client, $url);
 
     my $meta = _restore_cached_metadata($song, $url);
-    my ($url_type) = _twitch_media_id($song, $url);
+    my ($url_type, $media_id) = _twitch_media_id($song, $url);
     my $is_vod = $url_type ? $url_type eq 'vod' : _is_vod_song($song);
+    # Material can turn this stable identity into a public Twitch link even
+    # after LMS replaces the logical track URL with a signed twitchhls URL.
+    my $extid;
+    if (defined $media_id && $url_type eq 'live'
+        && $media_id =~ /^[a-z0-9_]{1,25}$/i)
+    {
+        $extid = 'twitch:' . lc($media_id);
+    } elsif (defined $media_id && $url_type eq 'vod'
+        && $media_id =~ /^\d{1,20}$/)
+    {
+        $extid = 'twitch:videos/' . $media_id;
+    }
     my $audio_info = _restore_audio_info($song, $url);
     my $sample_rate = ref $audio_info eq 'HASH'
         ? $audio_info->{sample_rate}
@@ -302,6 +314,7 @@ sub getMetadataFor {
         samplerate   => $sample_rate,
         type         => 'aac',
         url          => $url,
+        extid        => $extid,
     };
 }
 

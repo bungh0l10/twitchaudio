@@ -146,6 +146,14 @@ Skin's shared `actions.json`. Material Skin versions without
 and Remove through SlimBrowse. Material's native Open, Add and Remove actions
 require Material Skin 6.4.8 or newer.
 
+Playback metadata also includes a stable `extid`: `twitch:<channel-login>`
+for live streams or `twitch:videos/<video-id>` for VODs. This remains available
+after playback switches to the internal `twitchhls:` URL. Material can use it
+for a clickable Twitch emblem on the Now Playing cover, once Twitch entries
+are added to Material's `track-sources.json` and `emblems.json` and a Twitch
+SVG is provided. Those Material changes are required separately; the metadata
+alone does not enable the emblem.
+
 If Twitch returns an API or GraphQL error, the non-clickable service-impact
 message exposes **Open Twitch status** through its standard SlimBrowse context
 menu. Material opens the official status page in a new browser tab without

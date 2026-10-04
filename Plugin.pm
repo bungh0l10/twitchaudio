@@ -494,9 +494,7 @@ sub _vod_items {
 sub _buildVodMenuItem {
     my ($login, $channel, $title, $type, $context) = @_;
 
-    my $cover = $context && $context eq 'saved_channel'
-        ? _artwork_variant($channel->{cover}, "saved-$type")
-        : $channel->{cover};
+    my $cover = _artwork_variant($channel->{cover}, "channel-$type");
 
     return {
         name  => $title,
@@ -753,9 +751,7 @@ sub _buildChannelUiItem {
             . ($is_saved ? 'saved:' : 'unsaved:')
             . $channel->{artist};
 
-    my $cover = $context && $context eq 'saved_channel'
-        ? _artwork_variant($channel->{cover}, 'saved-live')
-        : $channel->{cover};
+    my $cover = _artwork_variant($channel->{cover}, 'channel-live');
 
     my $item = {
         type            => 'audio',
@@ -793,6 +789,9 @@ sub _artwork_variant {
     return $cover unless defined $cover && length $cover;
     return $cover unless defined $variant && length $variant;
 
+    # Material hides repeated artwork in some app lists. Give each menu role
+    # a distinct URL while retaining the same channel image, for every entry
+    # path (search, follows and saved channels).
     return $cover
         . ($cover =~ /\?/ ? '&' : '?')
         . 'twitchaudio=' . $variant;

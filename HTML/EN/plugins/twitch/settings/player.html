@@ -1,5 +1,9 @@
 [% PROCESS settings/header.html %]
 
+[% WRAPPER setting title="PLUGIN_TWITCH_ACCOUNT" desc="PLUGIN_TWITCH_ACCOUNT_DESC" %]
+    <a href="basic.html[% IF noSettingsList %]?noSettingsList=1[% END %]">[% "PLUGIN_TWITCH_CONNECT" | string %]</a>
+[% END %]
+
 [% WRAPPER setting title="PLUGIN_TWITCH_CHANNEL_LIST" desc="PLUGIN_TWITCH_CHANNEL_LIST_DESC" %]
     <select name="pref_use_personal_channels" id="pref_use_personal_channels">
         <option value="0" [% IF !prefs.pref_use_personal_channels %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_USE_SHARED_CHANNELS" | string %]</option>

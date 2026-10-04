@@ -313,19 +313,20 @@ sub _applyInitialMetadata {
     return unless _begin_metadata_refresh($song);
 
     Plugins::Twitch::API::getChannel($channel, sub {
-        my ($data) = @_;
+        my ($data, $error) = @_;
 
-        my $success = $data && $data->{user} ? 1 : 0;
+        my $success = $data && !$error ? 1 : 0;
         _finish_metadata_refresh(
             $song,
             $success,
             Plugins::Twitch::Config::live_cache_ttl(),
         );
-        return unless $data && $data->{user};
+        return unless $data;
 
-        my $u = $data->{user};
-        my $title = $u->{stream}->{title}
-            // cstring($client, 'PLUGIN_TWITCH_OFFLINE');
+        my $u = $data;
+        my $title = $u->{title}
+            // ($u->{is_live} ? $u->{login} : cstring($client,
+                defined $u->{is_live} ? 'PLUGIN_TWITCH_OFFLINE' : 'PLUGIN_TWITCH_STATUS_UNKNOWN'));
         my $current = $song->pluginData('wmaMeta');
         my $initial_refresh = !$song->pluginData(
             'twitchLiveMetadataInitialized'
@@ -341,7 +342,7 @@ sub _applyInitialMetadata {
             $meta = {
                 title  => $title,
                 artist => lc($u->{login}),
-                cover  => $u->{profileImageURL},
+                cover  => $u->{artwork},
             };
             $song->pluginData('twitchLiveMetadataInitialized', 1);
         }

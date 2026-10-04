@@ -8,6 +8,7 @@ use Slim::Utils::Prefs qw(preferences);
 use constant {
     DEFAULT_CACHE_TTL             => 3600,
     DEFAULT_LIVE_CACHE_TTL        => 300,
+    DEFAULT_STATUS_CACHE_TTL      => 60,
     DEFAULT_LIVE_INITIAL_SEGMENTS => 8,
     DEFAULT_LIVE_START_BUFFER_SECONDS => 8,
     DEFAULT_LIVE_BUFFER_SECONDS   => 13,
@@ -25,10 +26,18 @@ sub init {
         live_start_buffer_seconds => DEFAULT_LIVE_START_BUFFER_SECONDS,
         live_buffer_seconds => DEFAULT_LIVE_BUFFER_SECONDS,
         client_id => DEFAULT_CLIENT_ID,
+        oauth_client_id => '',
+        helix_metadata => 1,
         saved_channels => [],
     });
 
     unless ($channel_preferences_registered) {
+        $prefs->setValidate(sub { !defined $_[1] || $_[1] eq '' || $_[1] =~ /^[a-zA-Z0-9]{10,100}$/ }, 'oauth_client_id');
+        $prefs->setChange(sub {
+            Plugins::Twitch::OAuth::disconnect()
+                if Plugins::Twitch::OAuth->can('disconnect');
+        }, 'oauth_client_id');
+        $prefs->setValidate({ validator => 'intlimit', low => 0, high => 1 }, 'helix_metadata');
         $prefs->setValidate({ validator => 'intlimit', low => 0, high => 1 },
             'use_personal_channels');
         # Also handle changes made through LMS's playerpref command.
@@ -106,6 +115,14 @@ sub client_id {
 
     return $client_id;
 }
+
+sub oauth_client_id {
+    my $id = $prefs->get('oauth_client_id') || '';
+    return $id =~ /^[a-zA-Z0-9]{10,100}$/ ? $id : '';
+}
+
+sub helix_metadata { return $prefs->get('helix_metadata') ? 1 : 0; }
+sub status_cache_ttl { return DEFAULT_STATUS_CACHE_TTL; }
 
 sub _normalize_channel_login {
     my ($login) = @_;

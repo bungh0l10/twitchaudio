@@ -13,6 +13,7 @@ use Slim::Utils::Cache;
 
 use Plugins::Twitch::API;
 use Plugins::Twitch::Config ();
+use Plugins::Twitch::OAuth ();
 use Plugins::Twitch::HLSStream ();
 
 my $log = Slim::Utils::Log->addLogCategory({
@@ -306,8 +307,11 @@ sub initPlugin {
     my ($class) = @_;
 
     Plugins::Twitch::Config::init();
+    Plugins::Twitch::OAuth::init();
 
     if (main::WEBUI()) {
+        require Plugins::Twitch::Settings;
+        Plugins::Twitch::Settings->new;
         require Plugins::Twitch::PlayerSettings;
         Plugins::Twitch::PlayerSettings->new;
     }
@@ -336,6 +340,10 @@ sub postinitPlugin {
     return;
 }
 
+sub shutdownPlugin {
+    Plugins::Twitch::OAuth::shutdown();
+}
+
 sub handleFeed {
     my ($client, $cb) = @_;
 
@@ -343,6 +351,8 @@ sub handleFeed {
         items => [
             _buildMainMenu($client),
             _buildSavedChannelsMenu($client),
+            (Plugins::Twitch::OAuth::connected()
+                ? (_buildFollowedMenu($client, 1), _buildFollowedMenu($client, 0)) : ()),
         ],
     });
 
@@ -397,12 +407,12 @@ sub _searchChannelLogin {
         my ($data, $api_error) = @_;
 
         return _twitchServiceImpact($client, $cb)
-            if $api_error && (!$data || !$data->{user});
+            if $api_error && !$data;
 
         return _channelDoesNotExist($client, $cb)
-            unless $data && $data->{user};
+            unless $data;
 
-        my $user = $data->{user};
+        my $user = $data;
         my $channel = _buildChannelData($client, $user);
 
         _cache_live_metadata($channel);
@@ -420,7 +430,7 @@ sub _searchChannelLogin {
                 ['PLUGIN_TWITCH_ARCHIVE',    'archives'],
             ) {
                 my ($title_key, $type) = @$vod_type;
-                next unless @{ _vod_edges($vod_data, $type) };
+                next unless @{ _vod_items($vod_data, $type) };
 
                 push @items, _buildVodMenuItem(
                     $user->{login},
@@ -460,16 +470,9 @@ sub _is_channel_login {
     return defined $query && $query =~ /^[a-z0-9_]{4,25}$/ ? 1 : 0;
 }
 
-sub _vod_edges {
+sub _vod_items {
     my ($data, $type) = @_;
-
-    return []
-        unless $data
-            && $data->{user}
-            && $data->{user}{$type}
-            && $data->{user}{$type}{edges};
-
-    return $data->{user}{$type}{edges};
+    return $data && ref $data->{$type} eq 'ARRAY' ? $data->{$type} : [];
 }
 
 sub _buildVodMenuItem {
@@ -491,9 +494,9 @@ sub _buildVodMenuItem {
             Plugins::Twitch::API::getVods($login, 100, sub {
                 my ($data, $api_error) = @_;
 
-                my $edges = _vod_edges($data, $type);
+                my $videos = _vod_items($data, $type);
 
-                unless (@$edges) {
+                unless (@$videos) {
                     return _twitchServiceImpact($client, $cb)
                         if $api_error;
                     return $cb->({ items => [] });
@@ -504,8 +507,8 @@ sub _buildVodMenuItem {
                 push @items, _twitchServiceImpactUiItem($client)
                     if $api_error;
 
-                for my $edge (@$edges) {
-                    my $item = _buildVodUiItem($edge);
+                for my $video (@$videos) {
+                    my $item = _buildVodUiItem($video);
                     push @items, $item if $item;
                 }
 
@@ -520,36 +523,16 @@ sub _buildVodMenuItem {
 }
 
 sub _buildVodUiItem {
-    my ($edge) = @_;
-
-    my $vod = $edge->{node} || return;
-    my $vod_id = $vod->{id} || return;
-    my $title = $vod->{title} || return;
-    my $image = $vod->{thumbnailURLs}[0];
-
+    my ($vod) = @_;
+    return unless $vod && $vod->{id} && $vod->{title};
     return {
-        type     => 'audio',
-        name     => $title,
-        line1    => $title,
-        icon     => $image,
-        image    => $image,
-        play     => 'twitch:vod:' . $vod_id,
-        duration => $vod->{lengthSeconds} || 0,
+        type => 'audio', name => $vod->{title}, line1 => $vod->{title},
+        icon => $vod->{thumbnail}, image => $vod->{thumbnail},
+        play => 'twitch:vod:' . $vod->{id}, duration => $vod->{duration} || 0,
     };
 }
 
-sub _buildVodMetaUiItem {
-    my ($vod) = @_;
-
-    return _buildVodUiItem({
-        node => {
-            id            => $vod->{id},
-            title         => $vod->{title},
-            lengthSeconds => $vod->{duration},
-            thumbnailURLs => [$vod->{thumbnail}],
-        },
-    });
-}
+sub _buildVodMetaUiItem { return _buildVodUiItem(@_); }
 
 sub _buildMainMenu {
     my ($client) = @_;
@@ -591,85 +574,108 @@ sub _buildSavedChannelsMenu {
     };
 }
 
-sub _buildSavedChannelMenuItem {
-    my ($login, $cover) = @_;
+# Material displays the second line as HTML. Escape external titles and remove
+# line breaks so a Twitch title cannot inject markup or additional list lines.
+sub _list_text {
+    my ($text) = @_;
+    $text //= '';
+    $text =~ s/[\r\n]+/ /g;
+    $text =~ s/&/&amp;/g;
+    $text =~ s/</&lt;/g;
+    $text =~ s/>/&gt;/g;
+    return $text;
+}
 
-    my $saved_cover = _artwork_variant($cover, 'saved-channel');
+sub _live_status_line {
+    my ($client, $channel) = @_;
+    return cstring($client, 'PLUGIN_TWITCH_STATUS_UNKNOWN')
+        unless $channel && defined $channel->{is_live};
+    return cstring($client, 'PLUGIN_TWITCH_OFFLINE') unless $channel->{is_live};
+    my $title = _list_text($channel->{title});
+    return "\x{1F534} LIVE" . (length $title ? " \x{b7} $title" : '');
+}
 
+sub _buildChannelListItem {
+    my ($client, $login, $channel) = @_;
+    my $is_saved = grep { $_ eq $login } @{ Plugins::Twitch::Config::saved_channels($client) };
+    my $cover = _artwork_variant($channel && $channel->{artwork}, 'saved-channel');
     my $item = {
-        name => $login,
+        name => $login, line1 => $login,
+        line2 => _live_status_line($client, $channel),
         type => 'link',
         itemActions => {
             info => {
                 command => ['twitch_channel_actions', 'items'],
                 fixedParams => {
-                    method => 'remove',
-                    url => "twitch:live-saved:$login",
+                    method => $is_saved ? 'remove' : 'add',
+                    url => 'twitch:live-' . ($is_saved ? 'saved:' : 'unsaved:') . $login,
                 },
             },
         },
         url => sub {
             my ($client, $cb) = @_;
-            return _searchChannelLogin(
-                $client,
-                $cb,
-                $login,
-                'saved_channel',
-            );
+            return _searchChannelLogin($client, $cb, $login, $is_saved ? 'saved_channel' : undef);
         },
     };
-
-    if (defined $saved_cover && length $saved_cover) {
-        $item->{icon} = $saved_cover;
-        $item->{image} = $saved_cover;
-    }
-
+    $item->{icon} = $item->{image} = $cover if defined $cover && length $cover;
     return $item;
 }
 
 sub _loadSavedChannelItems {
     my ($client, $channels, $cb) = @_;
-
-    my @items;
-    my $pending = scalar @$channels;
     my $cache = Slim::Utils::Cache->new;
-
-    for my $index (0 .. $#$channels) {
-        my $item_index = $index;
-        my $login = $channels->[$index];
-        my $cached = $cache->get("twitch:live:$login");
-
-        my $complete = sub {
-            my ($cover) = @_;
-            $items[$item_index] = _buildSavedChannelMenuItem(
-                $login,
-                $cover,
-            );
-
-            $cb->({ items => \@items }) unless --$pending;
-            return;
-        };
-
-        if (ref $cached eq 'HASH' && $cached->{cover}) {
-            $complete->($cached->{cover});
-            next;
+    my (%known, @missing);
+    for my $login (@$channels) {
+        my $cached = $cache->get("twitch:status:$login");
+        if (ref $cached eq 'HASH' && defined $cached->{is_live}) {
+            $known{$login} = $cached;
+        } else {
+            push @missing, $login;
         }
-
-        Plugins::Twitch::API::getChannel($login, sub {
-            my ($data) = @_;
-            my $user = $data && $data->{user};
-
-            if ($user) {
-                my $channel = _buildChannelData($client, $user);
-                _cache_live_metadata($channel);
-                return $complete->($channel->{cover});
-            }
-
-            return $complete->();
-        });
     }
+    my $complete = sub {
+        my ($loaded) = @_;
+        for my $login (keys %{ $loaded || {} }) {
+            $known{$login} = $loaded->{$login};
+            $cache->set("twitch:status:$login", $loaded->{$login},
+                Plugins::Twitch::Config::status_cache_ttl())
+                if defined $loaded->{$login}{is_live};
+        }
+        $cb->({ items => [map {
+            my $login = $_;
+            my $channel = $known{$login};
+            unless ($channel) {
+                my $old = $cache->get("twitch:live:$login");
+                $channel = { artwork => $old->{cover} } if ref $old eq 'HASH';
+            }
+            _buildChannelListItem($client, $login, $channel);
+        } @$channels] });
+    };
+    return $complete->({}) unless @missing;
+    Plugins::Twitch::API::getChannels(\@missing, $complete);
+}
 
-    return;
+sub _buildFollowedMenu {
+    my ($client, $live_only, $cursor) = @_;
+    return {
+        name => cstring($client, $cursor ? 'PLUGIN_TWITCH_MORE'
+            : $live_only ? 'PLUGIN_TWITCH_FOLLOWED_LIVE' : 'PLUGIN_TWITCH_FOLLOWED'),
+        type => 'link',
+        url => sub {
+            my ($client, $cb) = @_;
+            Plugins::Twitch::API::getFollowedChannels($live_only, $cursor, sub {
+                my ($data, $error) = @_;
+                if ($error) {
+                    return $cb->({ items => [{ type => 'text', name => cstring($client,
+                        $error->{type} eq 'auth' ? 'PLUGIN_TWITCH_LOGIN_REQUIRED' : 'PLUGIN_TWITCH_SERVICE_IMPACT') }] });
+                }
+                my @items = map { _buildChannelListItem($client, $_->{login}, $_) } @{ $data->{items} };
+                push @items, _buildFollowedMenu($client, $live_only, $data->{cursor}) if $data->{cursor};
+                push @items, { type => 'text', name => cstring($client, 'PLUGIN_TWITCH_NO_FOLLOWED') } unless @items;
+                $cb->({ items => \@items });
+            });
+        },
+    };
 }
 
 sub _channelDoesNotExist {
@@ -745,7 +751,7 @@ sub _buildChannelUiItem {
         favorites_url   => $action_url,
         play            => 'twitch:live:' . $channel->{artist},
         line1           => $channel->{artist},
-        line2           => $channel->{title},
+        line2           => _live_status_line($client, $channel),
         icon            => $cover,
         image           => $cover,
         on_select       => 'play',
@@ -781,15 +787,13 @@ sub _artwork_variant {
 }
 
 sub _buildChannelData {
-    my ($client, $user) = @_;
-
-    my $stream = $user->{stream} // {};
-
+    my ($client, $channel) = @_;
     return {
-        artist => lc($user->{login} // ''),
-        title  => $stream->{title}
-            // cstring($client, 'PLUGIN_TWITCH_OFFLINE'),
-        cover  => $user->{profileImageURL} // '',
+        %$channel,
+        artist => lc($channel->{login} // ''),
+        title => $channel->{title} // ($channel->{is_live} ? $channel->{login} : cstring($client,
+            defined $channel->{is_live} ? 'PLUGIN_TWITCH_OFFLINE' : 'PLUGIN_TWITCH_STATUS_UNKNOWN')),
+        cover => $channel->{artwork} // '',
     };
 }
 

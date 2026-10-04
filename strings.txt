@@ -73,3 +73,115 @@ PLUGIN_TWITCH_ADD_TO_MY_CHANNELS
 PLUGIN_TWITCH_REMOVE_FROM_MY_CHANNELS
 	DE	Aus meinen Kanälen entfernen
 	EN	Remove from my channels
+
+PLUGIN_TWITCH_ACCOUNT
+	DE	Twitch-Konto
+	EN	Twitch account
+
+PLUGIN_TWITCH_ACCOUNT_DESC
+	DE	Die Anmeldung ist optional und gilt für alle Player dieses Servers. Sie ergänzt gefolgte Kanäle. Öffentliche Streams und VODs bleiben ohne Anmeldung hörbar. Lokale Kanallisten bleiben unabhängig vom Twitch-Konto. Öffne das Twitch-Menü nach der Anmeldung erneut.
+	EN	Sign-in is optional and shared by all players on this server. It adds followed channels. Public streams and VODs remain playable without signing in. Local channel lists remain separate from the Twitch account. Reopen the Twitch menu after signing in.
+
+PLUGIN_TWITCH_CLIENT_ID
+	DE	OAuth Client-ID
+	EN	OAuth client ID
+
+PLUGIN_TWITCH_CLIENT_ID_DESC
+	DE	Client-ID einer eigenen Twitch-Anwendung mit Client-Typ Public. Die Anwendung wird unter dev.twitch.tv/console/apps registriert. Kein Client-Secret und keine Twitch-Web-Client-ID eintragen. Ein Wechsel der ID trennt die bestehende Kontoverbindung.
+	EN	Client ID of a Twitch application registered as a Public client at dev.twitch.tv/console/apps. Do not enter a client secret or the Twitch website client ID. Changing the ID disconnects the current account.
+
+PLUGIN_TWITCH_HELIX_METADATA
+	DE	Metadaten über Helix laden
+	EN	Load metadata using Helix
+
+PLUGIN_TWITCH_HELIX_METADATA_DESC
+	DE	Bei bestehender Anmeldung Kanalinformationen und VOD-Listen über Helix laden. Bei Fehlern wird für öffentliche Metadaten GraphQL verwendet. Die Audiowiedergabe bleibt anonym.
+	EN	When signed in, load channel information and VOD lists using Helix. Public metadata falls back to GraphQL on errors. Audio playback remains anonymous.
+
+PLUGIN_TWITCH_CONNECT
+	DE	Mit Twitch verbinden
+	EN	Connect to Twitch
+
+PLUGIN_TWITCH_DISCONNECT
+	DE	Verbindung trennen / Anmeldung abbrechen
+	EN	Disconnect / cancel sign-in
+
+PLUGIN_TWITCH_AUTHORIZE
+	DE	Anmeldung bei Twitch bestätigen
+	EN	Authorize on Twitch
+
+PLUGIN_TWITCH_DEVICE_CODE
+	DE	Anmeldecode
+	EN	Sign-in code
+
+PLUGIN_TWITCH_REFRESH_STATUS
+	DE	Status aktualisieren
+	EN	Refresh status
+
+PLUGIN_TWITCH_AUTH_DISCONNECTED
+	DE	Nicht angemeldet
+	EN	Not signed in
+
+PLUGIN_TWITCH_AUTH_CHECKING
+	DE	Kontoverbindung wird geprüft
+	EN	Checking account connection
+
+PLUGIN_TWITCH_AUTH_STARTING
+	DE	Anmeldung wird gestartet
+	EN	Starting sign-in
+
+PLUGIN_TWITCH_AUTH_PENDING
+	DE	Bitte bestätige die Anmeldung bei Twitch. Diese Seite aktualisiert sich automatisch.
+	EN	Please authorize on Twitch. This page refreshes automatically.
+
+PLUGIN_TWITCH_AUTH_CONNECTED
+	DE	Verbunden
+	EN	Connected
+
+PLUGIN_TWITCH_AUTH_EXPIRED
+	DE	Anmeldung abgelaufen oder widerrufen. Bitte erneut verbinden.
+	EN	Sign-in expired or revoked. Please connect again.
+
+PLUGIN_TWITCH_AUTH_DENIED
+	DE	Anmeldung abgelehnt
+	EN	Sign-in denied
+
+PLUGIN_TWITCH_AUTH_ERROR
+	DE	Anmeldung fehlgeschlagen. Bitte Client-ID und Client-Typ Public prüfen.
+	EN	Sign-in failed. Please check the client ID and Public client type.
+
+PLUGIN_TWITCH_AUTH_STORAGE_ERROR
+	DE	Zugangsdaten konnten nicht gespeichert werden. Schreibrechte im LMS-Einstellungsverzeichnis prüfen.
+	EN	Unable to store credentials. Check write permissions in the LMS preferences directory.
+
+PLUGIN_TWITCH_AUTH_UNAVAILABLE
+	DE	Twitch-Anmeldung vorübergehend nicht erreichbar. Die anonyme Nutzung bleibt möglich.
+	EN	Twitch authentication is temporarily unavailable. Anonymous use remains available.
+
+PLUGIN_TWITCH_FOLLOWED
+	DE	Gefolgte Kanäle
+	EN	Followed channels
+
+PLUGIN_TWITCH_FOLLOWED_LIVE
+	DE	Gefolgte Kanäle – jetzt live
+	EN	Followed channels – live now
+
+PLUGIN_TWITCH_NO_FOLLOWED
+	DE	Keine passenden gefolgten Kanäle vorhanden
+	EN	No matching followed channels
+
+PLUGIN_TWITCH_LOGIN_REQUIRED
+	DE	Bitte in den Twitch-Plugin-Einstellungen erneut anmelden.
+	EN	Please sign in again in the Twitch plugin settings.
+
+PLUGIN_TWITCH_MORE
+	DE	Weitere Kanäle
+	EN	More channels
+
+PLUGIN_TWITCH_STATUS_UNKNOWN
+	DE	Status unbekannt
+	EN	Status unknown
+
+PLUGIN_TWITCH_CLIENT_ID_REQUIRED
+	DE	Bitte zuerst die Client-ID einer Twitch-Anwendung mit Client-Typ Public eintragen.
+	EN	Please enter the client ID of a Twitch application with Public client type first.

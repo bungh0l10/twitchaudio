@@ -1,0 +1,31 @@
+[% PROCESS settings/header.html %]
+
+[% WRAPPER setting title="PLUGIN_TWITCH_ACCOUNT" desc="PLUGIN_TWITCH_ACCOUNT_DESC" %]
+    <p>[% twitch_auth_status_key | string %][% IF twitch_auth.login %]: [% twitch_auth.login | html %][% END %]</p>
+    [% IF twitch_auth.user_code %]
+    <p><a href="[% twitch_auth.verification_uri | html %]" target="_blank" rel="noopener noreferrer">[% "PLUGIN_TWITCH_AUTHORIZE" | string %]</a></p>
+    <p>[% "PLUGIN_TWITCH_DEVICE_CODE" | string %]: <strong>[% twitch_auth.user_code | html %]</strong></p>
+    [% END %]
+    <button type="submit" name="twitch_connect" value="1">[% "PLUGIN_TWITCH_CONNECT" | string %]</button>
+    <button type="submit" name="twitch_disconnect" value="1">[% "PLUGIN_TWITCH_DISCONNECT" | string %]</button>
+    <button type="submit">[% "PLUGIN_TWITCH_REFRESH_STATUS" | string %]</button>
+[% END %]
+
+[% WRAPPER setting title="PLUGIN_TWITCH_CLIENT_ID" desc="PLUGIN_TWITCH_CLIENT_ID_DESC" %]
+    <input type="text" name="pref_oauth_client_id" id="pref_oauth_client_id" value="[% prefs.pref_oauth_client_id | html %]" size="45" maxlength="100" autocomplete="off" />
+[% END %]
+
+[% WRAPPER setting title="PLUGIN_TWITCH_HELIX_METADATA" desc="PLUGIN_TWITCH_HELIX_METADATA_DESC" %]
+    <input type="checkbox" name="pref_helix_metadata" id="pref_helix_metadata" value="1" [% IF prefs.pref_helix_metadata %]checked="checked"[% END %] />
+[% END %]
+
+[% IF twitch_auth.status == 'pending' || twitch_auth.status == 'checking' %]
+<script type="text/javascript">
+// Reload as GET so the authorization POST is never submitted twice.
+window.setTimeout(function () {
+    window.location.replace(window.location.pathname + window.location.search);
+}, 5000);
+</script>
+[% END %]
+
+[% PROCESS settings/footer.html %]

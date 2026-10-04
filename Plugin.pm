@@ -324,6 +324,13 @@ sub initPlugin {
         weight => 1,
     );
 
+    # Material asks for up to 25,000 items. Bound the CLI window so it uses its
+    # native scroll-to-load behavior instead of draining every Helix page.
+    Slim::Control::Request::addDispatch(
+        ['twitch', 'items', '_index', '_quantity'],
+        [1, 1, 1, \&_browse_command],
+    );
+
     _register_channel_commands();
     _register_status_action_command();
     _register_protocol_handlers();
@@ -342,6 +349,15 @@ sub postinitPlugin {
 
 sub shutdownPlugin {
     Plugins::Twitch::OAuth::shutdown();
+    Plugins::Twitch::API::clearVodLists();
+}
+
+sub _browse_command {
+    my ($request) = @_;
+    my $quantity = $request->getParam('_quantity');
+    $request->addParam('_quantity', 100)
+        if defined $quantity && $quantity =~ /^\d+$/ && $quantity > 100;
+    Slim::Control::XMLBrowser::cliQuery('twitch', \&handleFeed, $request);
 }
 
 sub handleFeed {
@@ -476,7 +492,7 @@ sub _vod_items {
 }
 
 sub _buildVodMenuItem {
-    my ($login, $channel, $title, $type, $context, $page) = @_;
+    my ($login, $channel, $title, $type, $context) = @_;
 
     my $cover = $context && $context eq 'saved_channel'
         ? _artwork_variant($channel->{cover}, "saved-$type")
@@ -487,16 +503,18 @@ sub _buildVodMenuItem {
         type  => 'link',
         icon  => $cover,
         image => $cover,
+        forceRefresh => 1,
 
         url => sub {
-            my ($client, $cb) = @_;
+            my ($client, $cb, $args) = @_;
 
-            Plugins::Twitch::API::getVodPage($login, $type, $page, sub {
+            Plugins::Twitch::API::getVodRange($login, $type, $args && $args->{index},
+                $args && $args->{quantity}, sub {
                 my ($data, $api_error) = @_;
 
                 my $videos = $data ? $data->{items} : [];
 
-                unless (@$videos || ($data && $data->{next_page})) {
+                unless (@$videos) {
                     return $cb->({ items => [{ type => 'text',
                         name => cstring($client, 'PLUGIN_TWITCH_LOGIN_REQUIRED') }] })
                         if $api_error && $api_error->{type} eq 'auth';
@@ -507,19 +525,22 @@ sub _buildVodMenuItem {
 
                 my @items;
 
-                push @items, _twitchServiceImpactUiItem($client)
-                    if $api_error;
-
                 for my $video (@$videos) {
                     my $item = _buildVodUiItem($video);
                     push @items, $item if $item;
                 }
 
-                push @items, _buildVodMenuItem($login, $channel,
-                    cstring($client, 'PLUGIN_TWITCH_MORE_VIDEOS'), $type, $context, $data->{next_page})
-                    if $data && $data->{next_page};
+                # A temporary error row stops automatic loading. Refreshing the
+                # list retries from the last successful cursor, preserving IDs.
+                push @items, { type => 'text', name => cstring($client,
+                    $api_error->{type} eq 'auth' ? 'PLUGIN_TWITCH_LOGIN_REQUIRED'
+                        : 'PLUGIN_TWITCH_VIDEO_RELOAD') } if $api_error;
 
-                $cb->({ items => \@items });
+                $cb->({ items => \@items, offset => 0, forceRefresh => 1,
+                    # XMLBrowser requires a positive total to normalize ranges.
+                    # One beyond the known prefix signals that more can load.
+                    total => scalar(@items) + (!$api_error && $data->{more} ? 1 : 0),
+                });
 
                 return;
             });

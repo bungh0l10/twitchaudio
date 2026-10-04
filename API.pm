@@ -7,6 +7,94 @@ use Plugins::Twitch::GraphQL ();
 use Plugins::Twitch::Helix ();
 use Plugins::Twitch::OAuth ();
 
+my %vod_lists;
+
+sub clearVodLists { %vod_lists = (); }
+
+# XMLBrowser asks for numeric ranges, whereas Helix provides opaque cursors.
+# Retain an ordered prefix so overlapping ranges and playback lookups keep their
+# indices. The cache also survives XMLBrowser rebuilding its coderef menus.
+sub getVodRange {
+    my ($login, $type, $index, $quantity, $callback) = @_;
+    $index ||= 0;
+    my $key = "$login:$type";
+    my $identity = Plugins::Twitch::OAuth::session_key();
+    for my $old (keys %vod_lists) {
+        delete $vod_lists{$old} if !$vod_lists{$old}{busy}
+            && time() - $vod_lists{$old}{touched} > 3600;
+    }
+    my $state = $vod_lists{$key};
+    $state = undef if $state && $state->{restart} && !$index;
+    if ($state && $state->{identity} ne $identity) {
+        return $callback->({ items => [@{ $state->{items} }], more => 0 },
+            { type => 'auth', message => 'Twitch session changed; reopen the video list' }) if $index;
+        $state = undef;
+    }
+    unless ($state) {
+        # Bound idle lists; an in-flight request always retains its own state.
+        my @old = sort { $vod_lists{$a}{touched} <=> $vod_lists{$b}{touched} }
+            grep { !$vod_lists{$_}{busy} } keys %vod_lists;
+        delete $vod_lists{shift @old} while keys(%vod_lists) >= 32 && @old;
+        $state = $vod_lists{$key} = {
+            login => $login, type => $type, identity => $identity,
+            items => [], seen => {}, cursors => {}, queue => [],
+        };
+    }
+    $state->{touched} = time();
+    push @{ $state->{queue} }, {
+        end => $quantity ? $index + $quantity : undef, callback => $callback,
+    };
+    _pumpVodRange($state);
+}
+
+sub _pumpVodRange {
+    my ($state) = @_;
+    return if $state->{busy};
+    while (my $job = $state->{queue}[0]) {
+        if ($state->{complete} || (defined $job->{end} && @{ $state->{items} } >= $job->{end})) {
+            shift @{ $state->{queue} };
+            $job->{callback}->({ items => [@{ $state->{items} }], more => $state->{complete} ? 0 : 1 });
+            return if $state->{busy};
+            next;
+        }
+        $state->{busy} = 1;
+        getVodPage($state->{login}, $state->{type}, $state->{next_page}, sub {
+            my ($data, $error) = @_;
+            $error = { type => 'auth', message => 'Twitch session changed' }
+                if $state->{identity} ne Plugins::Twitch::OAuth::session_key();
+            my $cursor = $data && $data->{next_page} ? $data->{next_page}{cursor} : undef;
+            if (!$error && defined $cursor && $state->{cursors}{$cursor}) {
+                $error = { type => 'invalid_response', message => 'Repeated Twitch video cursor' };
+            }
+            if (!$error) {
+                my @items = grep { $_->{id} && $_->{title} && !$state->{seen}{$_->{id}}++ }
+                    @{ $data && $data->{items} ? $data->{items} : [] };
+                $state->{empty_pages} = @items ? 0 : ($state->{empty_pages} || 0) + 1;
+                $error = { type => 'invalid_response', message => 'Twitch video pages contain no new videos' }
+                    if $cursor && $state->{empty_pages} >= 10;
+                unless ($error) {
+                    push @{ $state->{items} }, @items;
+                    $state->{cursors}{$cursor} = 1 if defined $cursor;
+                    $state->{next_page} = $data->{next_page};
+                    $state->{complete} = !$data->{next_page};
+                }
+            }
+            $state->{busy} = 0;
+            if ($error) {
+                $state->{restart} = 1 if $error->{type} eq 'invalid_response'
+                    || ($error->{status} || 0) == 400;
+                # Keep the successful prefix and cursor for a retry. Never mix
+                # anonymous page one into an already-started Helix collection.
+                my @waiting = splice @{ $state->{queue} };
+                $_->{callback}->({ items => [@{ $state->{items} }], more => 0 }, $error) for @waiting;
+                return;
+            }
+            _pumpVodRange($state);
+        });
+        return;
+    }
+}
+
 # Public metadata uses the same data model with either provider. Playback is
 # always anonymous; a Helix OAuth token is not a Twitch playback token.
 sub _metadata {

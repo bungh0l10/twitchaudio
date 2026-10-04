@@ -138,6 +138,44 @@ sub getVods {
     });
 }
 
+# A selected VOD category is loaded one page at a time. Keep the broadcaster ID
+# with the cursor so subsequent pages need only one request and retain the filter.
+sub getVodPage {
+    my ($login, $type, $page, $callback) = @_;
+    my %types = (highlights => 'highlight', archives => 'archive');
+    return $callback->(undef, _invalid()) unless $types{$type};
+    my $fetch = sub {
+        my ($id) = @_;
+        my %params = (user_id => $id, type => $types{$type}, sort => 'time', first => 100);
+        $params{after} = $page->{cursor} if $page;
+        _get('videos', \%params, sub {
+            my ($data, $error) = @_;
+            return $callback->(undef, $error) if $error;
+            my $cursor = ref $data->{pagination} eq 'HASH' ? $data->{pagination}{cursor} : undef;
+            my $next;
+            if (defined $cursor && !ref $cursor && length $cursor) {
+                # Do not offer a link back to the same page on a broken response.
+                return $callback->(undef, _invalid()) if $page && $cursor eq $page->{cursor};
+                $next = { user_id => $id, cursor => $cursor };
+            }
+            $callback->({ items => [map { _video($_) } @{ $data->{data} }], next_page => $next });
+        });
+    };
+    if ($page) {
+        return $callback->(undef, _invalid()) unless ref $page eq 'HASH'
+            && ($page->{user_id} || '') =~ /^\d+$/ && $page->{cursor} && !ref $page->{cursor};
+        return $fetch->($page->{user_id});
+    }
+    _get('users', { login => $login }, sub {
+        my ($users, $error) = @_;
+        return $callback->(undef, $error) if $error;
+        return $callback->({ items => [] }) unless @{ $users->{data} };
+        my $id = $users->{data}[0]{id};
+        return $callback->(undef, _invalid()) unless defined $id && $id =~ /^\d+$/;
+        $fetch->($id);
+    });
+}
+
 sub getFollowedChannels {
     my ($live_only, $cursor, $callback) = @_;
     my %params = (first => 100);

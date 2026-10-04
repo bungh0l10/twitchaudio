@@ -178,6 +178,10 @@ PLUGIN_TWITCH_MORE
 	DE	Weitere Kanäle
 	EN	More channels
 
+PLUGIN_TWITCH_MORE_VIDEOS
+	DE	Weitere Videos
+	EN	More videos
+
 PLUGIN_TWITCH_STATUS_UNKNOWN
 	DE	Status unbekannt
 	EN	Status unknown

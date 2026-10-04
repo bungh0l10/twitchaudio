@@ -30,6 +30,37 @@ sub getAudioUrl { Plugins::Twitch::GraphQL::getAudioUrl(@_); }
 sub getVodAudioUrl { Plugins::Twitch::GraphQL::getVodAudioUrl(@_); }
 sub getFollowedChannels { Plugins::Twitch::Helix::getFollowedChannels(@_); }
 
+sub getVodPage {
+    my ($login, $type, $page, $callback) = @_;
+    my $invalid = { type => 'invalid_response', message => 'Invalid Twitch video page' };
+    return $callback->(undef, $invalid) unless $type eq 'highlights' || $type eq 'archives';
+    if (defined $page) {
+        return $callback->(undef, $invalid) unless ref $page eq 'HASH'
+            && ($page->{provider} || '') eq 'helix'
+            && ($page->{login} || '') eq $login && ($page->{type} || '') eq $type;
+    }
+    my $anonymous = sub {
+        Plugins::Twitch::GraphQL::getVods($login, 100, sub {
+            my ($data, $error) = @_;
+            $callback->($data ? { items => $data->{$type} || [] } : undef, $error);
+        });
+    };
+    return $anonymous->() unless defined $page
+        || (Plugins::Twitch::Config::helix_metadata() && Plugins::Twitch::OAuth::connected());
+    Plugins::Twitch::Helix::getVodPage($login, $type, $page, sub {
+        my ($data, $error) = @_;
+        # Only the first page can fall back. A Helix cursor cannot be applied to
+        # GraphQL, and restarting anonymously would silently repeat page one.
+        return $anonymous->() if $error && !defined $page;
+        if ($data && $data->{next_page}) {
+            $data->{next_page} = {
+                %{ $data->{next_page} }, provider => 'helix', login => $login, type => $type,
+            };
+        }
+        $callback->($data, $error);
+    });
+}
+
 # Batch the Helix lookup, but bound concurrency for the anonymous provider.
 # Missing or failed channels remain absent; callers must not infer "offline".
 sub getChannels {

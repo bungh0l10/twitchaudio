@@ -8,7 +8,6 @@ use Slim::Utils::Prefs qw(preferences);
 use constant {
     DEFAULT_CACHE_TTL             => 3600,
     DEFAULT_LIVE_CACHE_TTL        => 300,
-    DEFAULT_STATUS_CACHE_TTL      => 60,
     DEFAULT_LIVE_INITIAL_SEGMENTS => 8,
     DEFAULT_LIVE_START_BUFFER_SECONDS => 8,
     DEFAULT_LIVE_BUFFER_SECONDS   => 13,
@@ -122,7 +121,6 @@ sub oauth_client_id {
 }
 
 sub helix_metadata { return $prefs->get('helix_metadata') ? 1 : 0; }
-sub status_cache_ttl { return DEFAULT_STATUS_CACHE_TTL; }
 
 sub _normalize_channel_login {
     my ($login) = @_;

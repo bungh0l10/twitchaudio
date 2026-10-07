@@ -292,7 +292,7 @@ sub _applyInitialMetadata {
                 $meta,
                 Plugins::Twitch::Config::cache_ttl(),
             );
-        });
+        }, $client);
 
         return;
     }
@@ -354,7 +354,7 @@ sub _applyInitialMetadata {
             $meta,
             Plugins::Twitch::Config::cache_ttl(),
         );
-    });
+    }, $client);
 
     return;
 }

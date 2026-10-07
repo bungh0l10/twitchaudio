@@ -363,12 +363,18 @@ sub _browse_command {
 sub handleFeed {
     my ($client, $cb) = @_;
 
+    Plugins::Twitch::Config::initialize_player($client);
+
     $cb->({
         items => [
             _buildMainMenu($client),
-            _buildSavedChannelsMenu($client),
-            (Plugins::Twitch::OAuth::connected()
-                ? (_buildFollowedMenu($client, 1), _buildFollowedMenu($client, 0)) : ()),
+            (Plugins::Twitch::Config::menu_visible('show_local_channels', $client)
+                ? (_buildSavedChannelsMenu($client)) : ()),
+            (Plugins::Twitch::OAuth::connected(Plugins::Twitch::Config::account_id($client))
+                ? ((Plugins::Twitch::Config::menu_visible('show_followed_live', $client)
+                        ? (_buildFollowedMenu($client, 1)) : ()),
+                   (Plugins::Twitch::Config::menu_visible('show_followed', $client)
+                        ? (_buildFollowedMenu($client, 0)) : ())) : ()),
         ],
     });
 
@@ -405,7 +411,7 @@ sub searchChannel {
                 if $is_explicit_vod;
 
             return _searchChannelLogin($client, $cb, $query);
-        });
+        }, $client);
 
         return;
     }
@@ -460,10 +466,10 @@ sub _searchChannelLogin {
             $cb->({ items => \@items });
 
             return;
-        });
+        }, $client);
 
         return;
-    });
+    }, $client);
 
     return;
 }
@@ -541,7 +547,7 @@ sub _buildVodMenuItem {
                 });
 
                 return;
-            });
+            }, $client);
 
             return;
         },
@@ -662,17 +668,20 @@ sub _loadSavedChannelItems {
         } @$channels] });
     };
     return $complete->({}) unless @missing;
-    Plugins::Twitch::API::getChannels(\@missing, $complete);
+    Plugins::Twitch::API::getChannels(\@missing, $complete, $client);
 }
 
 sub _buildFollowedMenu {
     my ($client, $live_only, $cursor) = @_;
+    my $identity = Plugins::Twitch::OAuth::session_key(Plugins::Twitch::Config::account_id($client));
     return {
         name => cstring($client, $cursor ? 'PLUGIN_TWITCH_MORE'
             : $live_only ? 'PLUGIN_TWITCH_FOLLOWED_LIVE' : 'PLUGIN_TWITCH_FOLLOWED'),
         type => 'link',
         url => sub {
             my ($client, $cb) = @_;
+            return $cb->({items => [{type => 'text', name => cstring($client, 'PLUGIN_TWITCH_LOGIN_REQUIRED')}]})
+                if $cursor && $identity ne Plugins::Twitch::OAuth::session_key(Plugins::Twitch::Config::account_id($client));
             Plugins::Twitch::API::getFollowedChannels($live_only, $cursor, sub {
                 my ($data, $error) = @_;
                 if ($error) {
@@ -683,7 +692,7 @@ sub _buildFollowedMenu {
                 push @items, _buildFollowedMenu($client, $live_only, $data->{cursor}) if $data->{cursor};
                 push @items, { type => 'text', name => cstring($client, 'PLUGIN_TWITCH_NO_FOLLOWED') } unless @items;
                 $cb->({ items => \@items });
-            });
+            }, $client);
         },
     };
 }

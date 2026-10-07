@@ -79,24 +79,24 @@ PLUGIN_TWITCH_ACCOUNT
 	EN	Twitch account
 
 PLUGIN_TWITCH_ACCOUNT_DESC
-	DE	Die Anmeldung ist optional und gilt für alle Player dieses Servers. Sie ergänzt gefolgte Kanäle. Öffentliche Streams und VODs bleiben ohne Anmeldung hörbar. Lokale Kanallisten bleiben unabhängig vom Twitch-Konto. Öffne das Twitch-Menü nach der Anmeldung erneut.
-	EN	Sign-in is optional and shared by all players on this server. It adds followed channels. Public streams and VODs remain playable without signing in. Local channel lists remain separate from the Twitch account. Reopen the Twitch menu after signing in.
+	DE	Die Anmeldung ist optional. Jeder Player kann den Serverstandard, ein eigenes Konto oder die Nutzung ohne Konto auswählen. Öffentliche Streams und VODs bleiben ohne Anmeldung hörbar. Öffne das Twitch-Menü nach Änderungen erneut.
+	EN	Sign-in is optional. Each player can use the server default, another account or no account. Public streams and VODs remain playable anonymously. Reopen the Twitch menu after changes.
 
 PLUGIN_TWITCH_CLIENT_ID
 	DE	OAuth Client-ID
 	EN	OAuth client ID
 
 PLUGIN_TWITCH_CLIENT_ID_DESC
-	DE	Client-ID einer eigenen Twitch-Anwendung mit Client-Typ Public. Die Anwendung wird unter dev.twitch.tv/console/apps registriert. Kein Client-Secret und keine Twitch-Web-Client-ID eintragen. Ein Wechsel der ID trennt die bestehende Kontoverbindung.
-	EN	Client ID of a Twitch application registered as a Public client at dev.twitch.tv/console/apps. Do not enter a client secret or the Twitch website client ID. Changing the ID disconnects the current account.
+	DE	Client-ID einer eigenen Twitch-Anwendung mit Client-Typ Public unter dev.twitch.tv/console/apps. Alle Konten verwenden diese Anwendung. Ein Wechsel der ID trennt alle Kontoverbindungen; Zuordnungen bleiben erhalten.
+	EN	Client ID of a Public Twitch application registered at dev.twitch.tv/console/apps. All accounts use this application. Changing the ID disconnects all accounts while retaining assignments.
 
 PLUGIN_TWITCH_HELIX_METADATA
 	DE	Metadaten über Helix laden
 	EN	Load metadata using Helix
 
 PLUGIN_TWITCH_HELIX_METADATA_DESC
-	DE	Bei bestehender Anmeldung Kanalinformationen und VOD-Listen über Helix laden. Bei Fehlern wird für öffentliche Metadaten GraphQL verwendet. Die Audiowiedergabe bleibt anonym.
-	EN	When signed in, load channel information and VOD lists using Helix. Public metadata falls back to GraphQL on errors. Audio playback remains anonymous.
+	DE	Helix bevorzugen verwendet das zugeordnete Konto für Kanalinformationen und VOD-Listen. Ohne Verbindung und bei Fehlern öffentlicher Metadaten wird GraphQL verwendet. Gefolgte Kanäle benötigen unabhängig davon eine Kontoverbindung. Die Audiowiedergabe bleibt anonym.
+	EN	Prefer Helix uses the assigned account for channel information and video lists. Without a connection and on public metadata errors, GraphQL is used. Followed channels always require a connected account. Audio playback remains anonymous.
 
 PLUGIN_TWITCH_CONNECT
 	DE	Mit Twitch verbinden
@@ -189,3 +189,115 @@ PLUGIN_TWITCH_STATUS_UNKNOWN
 PLUGIN_TWITCH_CLIENT_ID_REQUIRED
 	DE	Bitte zuerst die Client-ID einer Twitch-Anwendung mit Client-Typ Public eintragen.
 	EN	Please enter the client ID of a Twitch application with Public client type first.
+
+PLUGIN_TWITCH_ACCOUNTS
+	DE	Twitch-Konten
+	EN	Twitch accounts
+
+PLUGIN_TWITCH_ACCOUNTS_DESC
+	DE	Konten einzeln verbinden und Playern zuordnen. Eine Verbindung kann von mehreren Playern genutzt werden.
+	EN	Connect accounts individually and assign them to players. Several players can share one connection.
+
+PLUGIN_TWITCH_NO_ACCOUNTS
+	DE	Es sind noch keine Konten eingerichtet. Die anonyme Nutzung ist bereits möglich.
+	EN	No accounts have been added. Anonymous use is already available.
+
+PLUGIN_TWITCH_NO_ACCOUNT
+	DE	Ohne Twitch-Konto
+	EN	No Twitch account
+
+PLUGIN_TWITCH_DEFAULT_ACCOUNT
+	DE	Serverstandard
+	EN	Server default
+
+PLUGIN_TWITCH_MAKE_DEFAULT
+	DE	Als Serverstandard verwenden
+	EN	Use as server default
+
+PLUGIN_TWITCH_ADD_ACCOUNT
+	DE	Konto hinzufügen und verbinden
+	EN	Add and connect account
+
+PLUGIN_TWITCH_ACCOUNT_LABEL
+	DE	Bezeichnung (optional)
+	EN	Label (optional)
+
+PLUGIN_TWITCH_RECONNECT
+	DE	Erneut verbinden
+	EN	Reconnect
+
+PLUGIN_TWITCH_DELETE_ACCOUNT
+	DE	Konto löschen
+	EN	Delete account
+
+PLUGIN_TWITCH_DELETE_ACCOUNT_DESC
+	DE	Trennen behält den Kontoeintrag und die Zuordnungen. Löschen entfernt beides; betroffene Player verwenden anschließend kein Konto. Lokale Kanallisten bleiben erhalten.
+	EN	Disconnect retains the account entry and assignments. Delete removes both; affected players then use no account. Local channel lists are retained.
+
+PLUGIN_TWITCH_ASSIGNED_PLAYERS
+	DE	Zugeordnete Player
+	EN	Assigned players
+
+PLUGIN_TWITCH_SERVER_DEFAULTS
+	DE	Standard für alle Player
+	EN	Defaults for all players
+
+PLUGIN_TWITCH_SERVER_DEFAULTS_DESC
+	DE	Diese Werte gelten für Player, die den Serverstandard übernehmen. In den Player-Einstellungen kann jede Option einzeln überschrieben werden.
+	EN	These values apply to players which inherit server defaults. Each option can be overridden individually in player settings.
+
+PLUGIN_TWITCH_APPLICATION
+	DE	Twitch-Anwendung
+	EN	Twitch application
+
+PLUGIN_TWITCH_METADATA_SOURCE
+	DE	Metadatenquelle
+	EN	Metadata source
+
+PLUGIN_TWITCH_PREFER_HELIX
+	DE	Helix bevorzugen
+	EN	Prefer Helix
+
+PLUGIN_TWITCH_SHOW
+	DE	Anzeigen
+	EN	Show
+
+PLUGIN_TWITCH_HIDE
+	DE	Ausblenden
+	EN	Hide
+
+PLUGIN_TWITCH_INHERIT
+	DE	Serverstandard übernehmen
+	EN	Use server default
+
+PLUGIN_TWITCH_PLAYER_ACCOUNT_DESC
+	DE	Wähle das Konto für diesen Player. Ohne Twitch-Konto bleibt dieser Player unabhängig vom Serverstandard anonym.
+	EN	Choose this player’s account. No Twitch account keeps this player anonymous regardless of the server default.
+
+PLUGIN_TWITCH_EFFECTIVE_ACCOUNT
+	DE	Aktuelles Konto
+	EN	Current account
+
+PLUGIN_TWITCH_EFFECTIVE_SOURCE
+	DE	Verwendete Metadatenquelle
+	EN	Active metadata source
+
+PLUGIN_TWITCH_MANAGE_ACCOUNTS
+	DE	Konten und Serverstandard verwalten
+	EN	Manage accounts and server defaults
+
+PLUGIN_TWITCH_ACCOUNT_NEEDED
+	DE	Für Helix und gefolgte Kanäle wird eine Verbindung zum zugeordneten Konto benötigt. Aktuell wird GraphQL verwendet.
+	EN	Helix and followed channels require the assigned account to be connected. GraphQL is currently used.
+
+PLUGIN_TWITCH_VISIBLE_MENUS
+	DE	Sichtbare Menüs
+	EN	Visible menus
+
+PLUGIN_TWITCH_VISIBLE_MENUS_DESC
+	DE	Jedes Menü kann unabhängig angezeigt oder ausgeblendet werden. Gefolgte Kanäle erscheinen nur mit verbundenem Konto. Das Ausblenden lokaler Kanäle löscht keine Einträge.
+	EN	Show or hide each menu independently. Followed channels appear only with a connected account. Hiding local channels does not delete entries.
+
+PLUGIN_TWITCH_AUTH_WRONG_ACCOUNT
+	EN	A different Twitch account was authorized. Sign in with the account shown here, or add a separate account.
+	DE	Es wurde ein anderes Twitch-Konto autorisiert. Melde dich mit dem hier angezeigten Konto an oder füge ein separates Konto hinzu.

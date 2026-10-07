@@ -1,0 +1,22 @@
+<style type="text/css">
+.twitch-settings { max-width: 860px; }
+.twitch-settings .twitch-account { border: 1px solid rgba(128,128,128,.35); border-radius: 8px; padding: 14px; margin: 10px 0; }
+.twitch-settings .twitch-heading, .twitch-settings .twitch-actions, .twitch-settings .twitch-new-account { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.twitch-settings .twitch-heading { justify-content: space-between; }
+.twitch-settings .twitch-badge { font-size: .9em; border: 1px solid rgba(128,128,128,.4); border-radius: 12px; padding: 2px 9px; }
+.twitch-settings .twitch-note { opacity: .85; line-height: 1.5; margin: 8px 0; }
+.twitch-settings .twitch-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 18px; margin: 12px 0; }
+.twitch-settings .twitch-row label { flex: 1 1 220px; }
+.twitch-settings .twitch-row select { flex: 1 1 260px; }
+.twitch-settings input[type=text], .twitch-settings select { box-sizing: border-box; max-width: 100%; min-height: 32px; }
+.twitch-settings .twitch-new-account input { flex: 1 1 240px; }
+.twitch-settings button { min-height: 32px; }
+.twitch-settings .twitch-delete { margin-left: auto; }
+.twitch-settings .twitch-device-code { font-size: 1.35em; letter-spacing: .08em; }
+.twitch-settings summary { cursor: pointer; padding: 8px 0; }
+@media (max-width: 520px) {
+    .twitch-settings .twitch-row select { flex-basis: 100%; width: 100%; }
+    .twitch-settings .twitch-delete { margin-left: 0; }
+    .twitch-settings .twitch-actions button { flex: 1 1 auto; }
+}
+</style>

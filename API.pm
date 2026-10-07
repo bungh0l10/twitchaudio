@@ -10,15 +10,20 @@ use Plugins::Twitch::OAuth ();
 my %vod_lists;
 
 sub clearVodLists { %vod_lists = (); }
+sub _context_key {
+    my ($client) = @_;
+    return Plugins::Twitch::OAuth::session_key(Plugins::Twitch::Config::account_id($client))
+        . ':' . Plugins::Twitch::Config::helix_metadata($client);
+}
 
 # XMLBrowser asks for numeric ranges, whereas Helix provides opaque cursors.
 # Retain an ordered prefix so overlapping ranges and playback lookups keep their
 # indices. The cache also survives XMLBrowser rebuilding its coderef menus.
 sub getVodRange {
-    my ($login, $type, $index, $quantity, $callback) = @_;
+    my ($login, $type, $index, $quantity, $callback, $client) = @_;
     $index ||= 0;
-    my $key = "$login:$type";
-    my $identity = Plugins::Twitch::OAuth::session_key();
+    my $key = ($client ? ($client->can('id') ? $client->id : "$client") : 'server') . ":$login:$type";
+    my $identity = _context_key($client);
     for my $old (keys %vod_lists) {
         delete $vod_lists{$old} if !$vod_lists{$old}{busy}
             && time() - $vod_lists{$old}{touched} > 3600;
@@ -26,7 +31,7 @@ sub getVodRange {
     my $state = $vod_lists{$key};
     $state = undef if $state && $state->{restart} && !$index;
     if ($state && $state->{identity} ne $identity) {
-        return $callback->({ items => [@{ $state->{items} }], more => 0 },
+        return $callback->({ items => [], more => 0 },
             { type => 'auth', message => 'Twitch session changed; reopen the video list' }) if $index;
         $state = undef;
     }
@@ -36,7 +41,7 @@ sub getVodRange {
             grep { !$vod_lists{$_}{busy} } keys %vod_lists;
         delete $vod_lists{shift @old} while keys(%vod_lists) >= 32 && @old;
         $state = $vod_lists{$key} = {
-            login => $login, type => $type, identity => $identity,
+            login => $login, type => $type, identity => $identity, client => $client,
             items => [], seen => {}, cursors => {}, queue => [],
         };
     }
@@ -60,8 +65,10 @@ sub _pumpVodRange {
         $state->{busy} = 1;
         getVodPage($state->{login}, $state->{type}, $state->{next_page}, sub {
             my ($data, $error) = @_;
-            $error = { type => 'auth', message => 'Twitch session changed' }
-                if $state->{identity} ne Plugins::Twitch::OAuth::session_key();
+            if ($state->{identity} ne _context_key($state->{client})) {
+                $error = { type => 'auth', message => 'Twitch session changed' };
+                $state->{items} = [];
+            }
             my $cursor = $data && $data->{next_page} ? $data->{next_page}{cursor} : undef;
             if (!$error && defined $cursor && $state->{cursors}{$cursor}) {
                 $error = { type => 'invalid_response', message => 'Repeated Twitch video cursor' };
@@ -90,7 +97,7 @@ sub _pumpVodRange {
                 return;
             }
             _pumpVodRange($state);
-        });
+        }, $state->{client});
         return;
     }
 }
@@ -99,16 +106,18 @@ sub _pumpVodRange {
 # always anonymous; a Helix OAuth token is not a Twitch playback token.
 sub _metadata {
     my ($method, @args) = @_;
+    my $client = ref $args[-1] eq 'CODE' ? undef : pop @args;
     my $callback = pop @args;
+    my $account = Plugins::Twitch::Config::account_id($client);
     my $graphql = Plugins::Twitch::GraphQL->can($method);
     return $graphql->(@args, $callback)
-        unless Plugins::Twitch::Config::helix_metadata() && Plugins::Twitch::OAuth::connected();
+        unless Plugins::Twitch::Config::helix_metadata($client) && Plugins::Twitch::OAuth::connected($account);
     my $helix = Plugins::Twitch::Helix->can($method);
     return $helix->(@args, sub {
         my ($data, $error) = @_;
         return $graphql->(@args, $callback) if $error;
         $callback->($data);
-    });
+    }, $account);
 }
 
 sub getChannel { _metadata('getChannel', @_); }
@@ -116,16 +125,29 @@ sub getVods { _metadata('getVods', @_); }
 sub getVodMeta { _metadata('getVodMeta', @_); }
 sub getAudioUrl { Plugins::Twitch::GraphQL::getAudioUrl(@_); }
 sub getVodAudioUrl { Plugins::Twitch::GraphQL::getVodAudioUrl(@_); }
-sub getFollowedChannels { Plugins::Twitch::Helix::getFollowedChannels(@_); }
+sub getFollowedChannels {
+    my ($live_only, $cursor, $callback, $client) = @_;
+    my $account = Plugins::Twitch::Config::account_id($client);
+    my $identity = _context_key($client);
+    Plugins::Twitch::Helix::getFollowedChannels($live_only, $cursor, sub {
+        return $callback->(undef, {type => 'auth', message => 'Twitch account selection changed'})
+            if $identity ne _context_key($client);
+        $callback->(@_);
+    }, $account);
+}
 
 sub getVodPage {
-    my ($login, $type, $page, $callback) = @_;
+    my ($login, $type, $page, $callback, $client) = @_;
+    my $account = Plugins::Twitch::Config::account_id($client);
     my $invalid = { type => 'invalid_response', message => 'Invalid Twitch video page' };
     return $callback->(undef, $invalid) unless $type eq 'highlights' || $type eq 'archives';
     if (defined $page) {
         return $callback->(undef, $invalid) unless ref $page eq 'HASH'
             && ($page->{provider} || '') eq 'helix'
-            && ($page->{login} || '') eq $login && ($page->{type} || '') eq $type;
+            && ($page->{login} || '') eq $login && ($page->{type} || '') eq $type
+            && (!exists $page->{account_id} || $page->{account_id} eq $account);
+        return $callback->(undef, {type => 'auth', message => 'Twitch session changed'})
+            if exists $page->{session_key} && $page->{session_key} ne Plugins::Twitch::OAuth::session_key($account);
     }
     my $anonymous = sub {
         Plugins::Twitch::GraphQL::getVods($login, 100, sub {
@@ -134,7 +156,7 @@ sub getVodPage {
         });
     };
     return $anonymous->() unless defined $page
-        || (Plugins::Twitch::Config::helix_metadata() && Plugins::Twitch::OAuth::connected());
+        || (Plugins::Twitch::Config::helix_metadata($client) && Plugins::Twitch::OAuth::connected($account));
     Plugins::Twitch::Helix::getVodPage($login, $type, $page, sub {
         my ($data, $error) = @_;
         # Only the first page can fall back. A Helix cursor cannot be applied to
@@ -142,17 +164,19 @@ sub getVodPage {
         return $anonymous->() if $error && !defined $page;
         if ($data && $data->{next_page}) {
             $data->{next_page} = {
-                %{ $data->{next_page} }, provider => 'helix', login => $login, type => $type,
+                %{ $data->{next_page} }, provider => 'helix', login => $login, type => $type, account_id => $account,
+                session_key => Plugins::Twitch::OAuth::session_key($account),
             };
         }
         $callback->($data, $error);
-    });
+    }, $account);
 }
 
 # Batch the Helix lookup, but bound concurrency for the anonymous provider.
 # Missing or failed channels remain absent; callers must not infer "offline".
 sub getChannels {
-    my ($logins, $callback) = @_;
+    my ($logins, $callback, $client) = @_;
+    my $account = Plugins::Twitch::Config::account_id($client);
     return $callback->({}) unless @$logins;
     my $anonymous = sub {
         my %channels;
@@ -180,13 +204,13 @@ sub getChannels {
         };
         $pump->();
     };
-    return $anonymous->() unless Plugins::Twitch::Config::helix_metadata()
-        && Plugins::Twitch::OAuth::connected();
+    return $anonymous->() unless Plugins::Twitch::Config::helix_metadata($client)
+        && Plugins::Twitch::OAuth::connected($account);
     Plugins::Twitch::Helix::getChannels($logins, sub {
         my ($channels, $error) = @_;
         return $anonymous->() if $error;
         $callback->($channels);
-    });
+    }, $account);
 }
 
 1;

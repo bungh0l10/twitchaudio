@@ -1,31 +1,100 @@
 [% PROCESS settings/header.html %]
+[% PROCESS plugins/twitch/settings/style.html %]
+<div class="twitch-settings">
 
-[% WRAPPER setting title="PLUGIN_TWITCH_ACCOUNT" desc="PLUGIN_TWITCH_ACCOUNT_DESC" %]
-    <p>[% twitch_auth_status_key | string %][% IF twitch_auth.login %]: [% twitch_auth.login | html %][% END %]</p>
-    [% IF twitch_auth.user_code %]
-    <p><a href="[% twitch_auth.verification_uri | html %]" target="_blank" rel="noopener noreferrer">[% "PLUGIN_TWITCH_AUTHORIZE" | string %]</a></p>
-    <p>[% "PLUGIN_TWITCH_DEVICE_CODE" | string %]: <strong>[% twitch_auth.user_code | html %]</strong></p>
+[% WRAPPER setting title="PLUGIN_TWITCH_ACCOUNTS" desc="PLUGIN_TWITCH_ACCOUNTS_DESC" %]
+    [% FOREACH account IN twitch_accounts %]
+    <div class="twitch-account">
+        <div class="twitch-heading">
+            <strong>[% account.display_name | html %][% IF account.login && account.login != account.display_name %] · [% account.login | html %][% END %]</strong>
+            [% IF account.is_default %]<span class="twitch-badge">[% "PLUGIN_TWITCH_DEFAULT_ACCOUNT" | string %]</span>[% END %]
+        </div>
+        <p class="twitch-note">[% account.status_key | string %]</p>
+        [% IF account.players.size %]<p class="twitch-note">[% "PLUGIN_TWITCH_ASSIGNED_PLAYERS" | string %]: [% account.players.join(', ') | html %]</p>[% END %]
+        [% IF account.user_code %]
+        <p><a href="[% account.verification_uri | html %]" target="_blank" rel="noopener noreferrer">[% "PLUGIN_TWITCH_AUTHORIZE" | string %]</a></p>
+        <p>[% "PLUGIN_TWITCH_DEVICE_CODE" | string %]: <strong class="twitch-device-code">[% account.user_code | html %]</strong></p>
+        [% END %]
+        <div class="twitch-actions">
+            [% IF account.status != 'pending' && account.status != 'starting' %]
+            <button type="submit" name="twitch_action" value="connect:[% account.id | html %]">[% IF account.connected %][% "PLUGIN_TWITCH_RECONNECT" | string %][% ELSE %][% "PLUGIN_TWITCH_CONNECT" | string %][% END %]</button>
+            [% END %]
+            [% IF account.connected || account.status == 'pending' || account.status == 'starting' %]
+            <button type="submit" name="twitch_action" value="disconnect:[% account.id | html %]">[% "PLUGIN_TWITCH_DISCONNECT" | string %]</button>
+            [% END %]
+            [% IF !account.is_default %]<button type="submit" name="twitch_action" value="default:[% account.id | html %]">[% "PLUGIN_TWITCH_MAKE_DEFAULT" | string %]</button>[% END %]
+            <button class="twitch-delete" type="submit" name="twitch_action" value="delete:[% account.id | html %]">[% "PLUGIN_TWITCH_DELETE_ACCOUNT" | string %]</button>
+        </div>
+    </div>
     [% END %]
-    <button type="submit" name="twitch_connect" value="1">[% "PLUGIN_TWITCH_CONNECT" | string %]</button>
-    <button type="submit" name="twitch_disconnect" value="1">[% "PLUGIN_TWITCH_DISCONNECT" | string %]</button>
-    <button type="submit">[% "PLUGIN_TWITCH_REFRESH_STATUS" | string %]</button>
+    [% IF !twitch_accounts.size %]<p class="twitch-note">[% "PLUGIN_TWITCH_NO_ACCOUNTS" | string %]</p>[% END %]
+    <div class="twitch-new-account">
+        <label for="twitch_new_label">[% "PLUGIN_TWITCH_ACCOUNT_LABEL" | string %]</label>
+        <input type="text" name="twitch_new_label" id="twitch_new_label" maxlength="64" autocomplete="off" />
+        <button type="submit" name="twitch_add" value="1">[% "PLUGIN_TWITCH_ADD_ACCOUNT" | string %]</button>
+    </div>
+    <p class="twitch-note">[% "PLUGIN_TWITCH_DELETE_ACCOUNT_DESC" | string %]</p>
 [% END %]
 
-[% WRAPPER setting title="PLUGIN_TWITCH_CLIENT_ID" desc="PLUGIN_TWITCH_CLIENT_ID_DESC" %]
-    <input type="text" name="pref_oauth_client_id" id="pref_oauth_client_id" value="[% prefs.pref_oauth_client_id | html %]" size="45" maxlength="100" autocomplete="off" />
+[% WRAPPER setting title="PLUGIN_TWITCH_SERVER_DEFAULTS" desc="PLUGIN_TWITCH_SERVER_DEFAULTS_DESC" %]
+    <div class="twitch-row">
+        <label for="pref_oauth_account">[% "PLUGIN_TWITCH_ACCOUNT" | string %]</label>
+        <select name="pref_oauth_account" id="pref_oauth_account">
+            <option value="none" [% IF prefs.pref_oauth_account == 'none' %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_NO_ACCOUNT" | string %]</option>
+            [% FOREACH account IN twitch_accounts %]
+            <option value="[% account.id | html %]" [% IF prefs.pref_oauth_account == account.id %]selected="selected"[% END %]>[% account.display_name | html %]</option>
+            [% END %]
+        </select>
+    </div>
+    <div class="twitch-row">
+        <label for="pref_helix_metadata">[% "PLUGIN_TWITCH_METADATA_SOURCE" | string %]</label>
+        <select name="pref_helix_metadata" id="pref_helix_metadata">
+            <option value="0" [% IF !prefs.pref_helix_metadata %]selected="selected"[% END %]>GraphQL</option>
+            <option value="1" [% IF prefs.pref_helix_metadata %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_PREFER_HELIX" | string %]</option>
+        </select>
+    </div>
+    <p class="twitch-note">[% "PLUGIN_TWITCH_HELIX_METADATA_DESC" | string %]</p>
+    [% FOREACH menu IN twitch_menus %]
+    [% pref_key = 'pref_' _ menu.key %]
+    <div class="twitch-row">
+        <label for="[% pref_key | html %]">[% menu.title | string %]</label>
+        <select name="[% pref_key | html %]" id="[% pref_key | html %]">
+            <option value="1" [% IF prefs.$pref_key == 1 %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_SHOW" | string %]</option>
+            <option value="0" [% IF prefs.$pref_key == 0 %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_HIDE" | string %]</option>
+        </select>
+    </div>
+    [% END %]
 [% END %]
 
-[% WRAPPER setting title="PLUGIN_TWITCH_HELIX_METADATA" desc="PLUGIN_TWITCH_HELIX_METADATA_DESC" %]
-    <input type="checkbox" name="pref_helix_metadata" id="pref_helix_metadata" value="1" [% IF prefs.pref_helix_metadata %]checked="checked"[% END %] />
+[% WRAPPER setting title="PLUGIN_TWITCH_APPLICATION" desc="PLUGIN_TWITCH_CLIENT_ID_DESC" %]
+    <details [% IF !prefs.pref_oauth_client_id %]open="open"[% END %]>
+        <summary>[% "PLUGIN_TWITCH_CLIENT_ID" | string %]</summary>
+        <label for="pref_oauth_client_id">[% "PLUGIN_TWITCH_CLIENT_ID" | string %]</label>
+        <input type="text" name="pref_oauth_client_id" id="pref_oauth_client_id" value="[% prefs.pref_oauth_client_id | html %]" size="45" maxlength="100" autocomplete="off" />
+    </details>
 [% END %]
+</div>
 
-[% IF twitch_auth.status == 'pending' || twitch_auth.status == 'checking' %]
+[% IF twitch_polling %]
 <script type="text/javascript">
-// Reload as GET so the authorization POST is never submitted twice.
-window.setTimeout(function () {
-    window.location.replace(window.location.pathname + window.location.search);
-}, 5000);
+(function () {
+    var modified = false;
+    var settings = document.querySelector('.twitch-settings');
+    function markModified() { modified = true; }
+    settings.addEventListener('input', markModified);
+    settings.addEventListener('change', markModified);
+    function pollTwitchSettings() {
+        window.setTimeout(function () {
+            var active = document.activeElement;
+            if (modified || (active && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName))) {
+                pollTwitchSettings();
+            } else {
+                window.location.replace(window.location.pathname + window.location.search);
+            }
+        }, 5000);
+    }
+    pollTwitchSettings();
+}());
 </script>
 [% END %]
-
 [% PROCESS settings/footer.html %]

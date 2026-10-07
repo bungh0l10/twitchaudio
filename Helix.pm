@@ -4,16 +4,18 @@ use strict;
 use warnings;
 use URI;
 use Plugins::Twitch::HTTP ();
+use Plugins::Twitch::Config ();
 use Plugins::Twitch::OAuth ();
 
-my $rate_limit_until = 0;
+my %rate_limit_until;
 
 sub _invalid { return { type => 'invalid_response', message => 'Invalid Twitch Helix response' }; }
 
 sub _get {
-    my ($path, $params, $callback, $retried, $rejected) = @_;
+    my ($path, $params, $callback, $account, $retried, $rejected) = @_;
+    $account = Plugins::Twitch::Config::account_id() unless defined $account;
     return $callback->(undef, { type => 'rate_limit', message => 'Twitch rate limit reached' })
-        if time() < $rate_limit_until;
+        if time() < ($rate_limit_until{$account} || 0);
     Plugins::Twitch::OAuth::with_token(sub {
         my ($auth, $auth_error) = @_;
         return $callback->(undef, $auth_error) if $auth_error;
@@ -22,19 +24,19 @@ sub _get {
         $query{user_id} = $auth->{user_id} if $path =~ m{^(?:channels|streams)/followed$};
         $url->query_form(%query);
         my $token = $auth->{access_token};
-        my $identity = Plugins::Twitch::OAuth::session_key();
+        my $identity = Plugins::Twitch::OAuth::session_key($account);
         Plugins::Twitch::HTTP::request('GET', $url->as_string, {
             'Client-ID' => $auth->{client_id}, Authorization => "Bearer $token",
         }, undef, sub {
             my ($data, $error) = @_;
             return $callback->(undef, { type => 'auth', message => 'Twitch session changed' })
-                if $identity ne Plugins::Twitch::OAuth::session_key();
+                if $identity ne Plugins::Twitch::OAuth::session_key($account);
             if ($error && ($error->{status} || 0) == 401 && !$retried) {
-                return _get($path, $params, $callback, 1, $token);
+                return _get($path, $params, $callback, $account, 1, $token);
             }
             if ($error && ($error->{status} || 0) == 429) {
                 my $reset = $error->{retry_at};
-                $rate_limit_until = defined $reset && $reset =~ /^\d+$/ && $reset > time()
+                $rate_limit_until{$account} = defined $reset && $reset =~ /^\d+$/ && $reset > time()
                     ? $reset : time() + 60;
             }
             return $callback->(undef, $error) if $error;
@@ -42,11 +44,11 @@ sub _get {
                 && !grep { ref $_ ne 'HASH' } @{ $data->{data} };
             $callback->($data);
         });
-    }, $rejected);
+    }, $rejected, $account);
 }
 
 sub getChannels {
-    my ($logins, $callback) = @_;
+    my ($logins, $callback, $account) = @_;
     return $callback->({}) unless @$logins;
     # Twitch accepts at most 100 logins per request.
     if (@$logins > 100) {
@@ -59,8 +61,8 @@ sub getChannels {
                 my ($rest, $rest_error) = @_;
                 return $callback->(undef, $rest_error) if $rest_error;
                 $callback->({ %$first, %$rest });
-            });
-        });
+            }, $account);
+        }, $account);
     }
     _get('users', { login => $logins }, sub {
         my ($users, $error) = @_;
@@ -79,16 +81,16 @@ sub getChannels {
                 }
             } @{ $users->{data} };
             $callback->(\%channels);
-        });
-    });
+        }, $account);
+    }, $account);
 }
 
 sub getChannel {
-    my ($login, $callback) = @_;
+    my ($login, $callback, $account) = @_;
     getChannels([$login], sub {
         my ($channels, $error) = @_;
         $callback->($channels ? $channels->{$login} : undef, $error);
-    });
+    }, $account);
 }
 
 sub _video {
@@ -107,15 +109,15 @@ sub _video {
 }
 
 sub getVodMeta {
-    my ($id, $callback) = @_;
+    my ($id, $callback, $account) = @_;
     _get('videos', { id => $id }, sub {
         my ($data, $error) = @_;
         $callback->($data && @{ $data->{data} } ? _video($data->{data}[0]) : undef, $error);
-    });
+    }, $account);
 }
 
 sub getVods {
-    my ($login, $limit, $callback) = @_;
+    my ($login, $limit, $callback, $account) = @_;
     $limit = 10 unless $limit && $limit > 0;
     $limit = 100 if $limit > 100;
     _get('users', { login => $login }, sub {
@@ -133,15 +135,15 @@ sub getVods {
                     highlights => [map { _video($_) } @{ $highlights->{data} }],
                     archives => [map { _video($_) } @{ $archives->{data} }],
                 });
-            });
-        });
-    });
+            }, $account);
+        }, $account);
+    }, $account);
 }
 
 # A selected VOD category is loaded one page at a time. Keep the broadcaster ID
 # with the cursor so subsequent pages need only one request and retain the filter.
 sub getVodPage {
-    my ($login, $type, $page, $callback) = @_;
+    my ($login, $type, $page, $callback, $account) = @_;
     my %types = (highlights => 'highlight', archives => 'archive');
     return $callback->(undef, _invalid()) unless $types{$type};
     my $fetch = sub {
@@ -159,7 +161,7 @@ sub getVodPage {
                 $next = { user_id => $id, cursor => $cursor };
             }
             $callback->({ items => [map { _video($_) } @{ $data->{data} }], next_page => $next });
-        });
+        }, $account);
     };
     if ($page) {
         return $callback->(undef, _invalid()) unless ref $page eq 'HASH'
@@ -173,11 +175,11 @@ sub getVodPage {
         my $id = $users->{data}[0]{id};
         return $callback->(undef, _invalid()) unless defined $id && $id =~ /^\d+$/;
         $fetch->($id);
-    });
+    }, $account);
 }
 
 sub getFollowedChannels {
-    my ($live_only, $cursor, $callback) = @_;
+    my ($live_only, $cursor, $callback, $account) = @_;
     my %params = (first => 100);
     $params{after} = $cursor if $cursor;
     _get($live_only ? 'streams/followed' : 'channels/followed', \%params, sub {
@@ -192,8 +194,8 @@ sub getFollowedChannels {
                 items => [map { $channels->{$_} ? ($channels->{$_}) : () } @logins],
                 cursor => ref $data->{pagination} eq 'HASH' ? $data->{pagination}{cursor} : undef,
             });
-        });
-    });
+        }, $account);
+    }, $account);
 }
 
 1;

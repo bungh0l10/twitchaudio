@@ -27,16 +27,24 @@ sub init {
         client_id => DEFAULT_CLIENT_ID,
         oauth_client_id => '',
         helix_metadata => 1,
+        oauth_account => '',
+        show_local_channels => 1,
+        show_followed => 1,
+        show_followed_live => 1,
         saved_channels => [],
     });
 
     unless ($channel_preferences_registered) {
         $prefs->setValidate(sub { !defined $_[1] || $_[1] eq '' || $_[1] =~ /^[a-zA-Z0-9]{10,100}$/ }, 'oauth_client_id');
         $prefs->setChange(sub {
-            Plugins::Twitch::OAuth::disconnect()
-                if Plugins::Twitch::OAuth->can('disconnect');
+            Plugins::Twitch::OAuth::disconnect_all()
+                if Plugins::Twitch::OAuth->can('disconnect_all');
         }, 'oauth_client_id');
         $prefs->setValidate({ validator => 'intlimit', low => 0, high => 1 }, 'helix_metadata');
+        $prefs->setValidate(sub { defined $_[1] && $_[1] =~ /^(?:inherit|none|default|a[0-9]+|)$/ }, 'oauth_account');
+        $prefs->setValidate(sub { defined $_[1] && $_[1] =~ /^(?:inherit|graphql|helix)$/ }, 'metadata_source');
+        $prefs->setValidate(sub { defined $_[1] && $_[1] =~ /^(?:inherit|0|1)$/ },
+            qw(show_local_channels show_followed show_followed_live));
         $prefs->setValidate({ validator => 'intlimit', low => 0, high => 1 },
             'use_personal_channels');
         # Also handle changes made through LMS's playerpref command.
@@ -120,7 +128,62 @@ sub oauth_client_id {
     return $id =~ /^[a-zA-Z0-9]{10,100}$/ ? $id : '';
 }
 
-sub helix_metadata { return $prefs->get('helix_metadata') ? 1 : 0; }
+sub account_id {
+    my ($client) = @_;
+    my $id = $client ? $prefs->client($client)->get('oauth_account') : undef;
+    $id = $prefs->get('oauth_account') unless defined $id && $id ne 'inherit';
+    return $id && $id ne 'inherit' ? $id : 'none';
+}
+
+sub helix_metadata {
+    my ($client) = @_;
+    my $source = $client ? $prefs->client($client)->get('metadata_source') : undef;
+    return $source eq 'helix' ? 1 : 0 if $source && $source ne 'inherit';
+    return $prefs->get('helix_metadata') ? 1 : 0;
+}
+
+sub menu_visible {
+    my ($key, $client) = @_;
+    my $value = $client ? $prefs->client($client)->get($key) : undef;
+    $value = $prefs->get($key) unless defined $value && $value ne 'inherit';
+    return defined $value && "$value" eq '1' ? 1 : 0;
+}
+
+sub initialize_player {
+    my ($client) = @_;
+    if ($client && $client->can('name')) {
+        my $cp = $prefs->client($client);
+        $cp->set('twitch_player_name', $client->name)
+            if ($cp->get('twitch_player_name') || '') ne $client->name;
+    }
+    $prefs->client($client)->init({
+        oauth_account => 'inherit', metadata_source => 'inherit',
+        show_local_channels => 'inherit', show_followed => 'inherit', show_followed_live => 'inherit',
+        use_personal_channels => 0,
+    }) if $client;
+}
+
+sub remove_account_references {
+    my ($id) = @_;
+    $prefs->set('oauth_account', 'none') if ($prefs->get('oauth_account') || '') eq $id;
+    # Also clear assignments for offline players. Only this plugin's stable
+    # account-ID field is rewritten; no player migration is required for it.
+    for my $cp ($prefs->allClients) {
+        $cp->set('oauth_account', 'none') if ($cp->get('oauth_account') || '') eq $id;
+    }
+}
+
+sub account_players {
+    my ($id) = @_;
+    my @names;
+    for my $cp ($prefs->allClients) {
+        my $player = $cp->{clientid};
+        my $selected = $cp->get('oauth_account') || 'inherit';
+        $selected = $prefs->get('oauth_account') if $selected eq 'inherit';
+        push @names, $cp->get('twitch_player_name') || $player if ($selected || '') eq $id;
+    }
+    return [sort @names];
+}
 
 sub _normalize_channel_login {
     my ($login) = @_;

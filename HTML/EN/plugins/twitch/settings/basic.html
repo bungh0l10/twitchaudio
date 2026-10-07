@@ -6,7 +6,7 @@
     [% FOREACH account IN twitch_accounts %]
     <div class="twitch-account">
         <div class="twitch-heading">
-            <strong>[% account.display_name | html %][% IF account.login && account.login != account.display_name %] · [% account.login | html %][% END %]</strong>
+            <strong>[% account.display_name | html %][% IF account.login && account.login != account.display_name %] &middot; [% account.login | html %][% END %]</strong>
             [% IF account.is_default %]<span class="twitch-badge">[% "PLUGIN_TWITCH_DEFAULT_ACCOUNT" | string %]</span>[% END %]
         </div>
         <p class="twitch-note">[% account.status_key | string %]</p>

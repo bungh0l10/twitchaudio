@@ -41,4 +41,18 @@ sub beforeRender {
     }
 }
 
+sub handler {
+    my ($class, $client, $params, @args) = @_;
+    if ($client && $params->{saveSettings}) {
+        Plugins::Twitch::Config::initialize_player($client);
+        # Disabled form controls are not submitted. Preserve their configured
+        # values so saving local options never resets account-specific choices.
+        for my $key (qw(metadata_source show_followed show_followed_live)) {
+            $params->{'pref_' . $key} = $prefs->client($client)->get($key)
+                unless defined $params->{'pref_' . $key};
+        }
+    }
+    return $class->SUPER::handler($client, $params, @args);
+}
+
 1;

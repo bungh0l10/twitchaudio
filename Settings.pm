@@ -86,10 +86,13 @@ sub beforeRender {
     }
     $params->{twitch_accounts} = $accounts;
     $params->{twitch_auth} = Plugins::Twitch::OAuth::state();
+    $params->{twitch_helix_available} = Plugins::Twitch::OAuth::connected($selected);
+    $params->{twitch_effective_helix} = $params->{twitch_helix_available}
+        && Plugins::Twitch::Config::helix_metadata();
     $params->{twitch_auth_status_key} = 'PLUGIN_TWITCH_AUTH_' . uc($params->{twitch_auth}{status});
     $params->{twitch_default_name} = string('PLUGIN_TWITCH_NO_ACCOUNT');
     for my $a (@$accounts) { $params->{twitch_default_name} = $a->{display_name} if $a->{is_default}; }
-    $params->{twitch_menus} = [map { +{key => $_->[0], title => $_->[1]} } (
+    $params->{twitch_menus} = [map { +{key => $_->[0], title => $_->[1], requires_account => $_->[0] ne 'show_local_channels'} } (
         ['show_local_channels', 'PLUGIN_TWITCH_MY_CHANNELS'],
         ['show_followed', 'PLUGIN_TWITCH_FOLLOWED'],
         ['show_followed_live', 'PLUGIN_TWITCH_FOLLOWED_LIVE'],

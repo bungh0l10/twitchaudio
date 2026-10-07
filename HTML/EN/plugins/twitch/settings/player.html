@@ -6,10 +6,10 @@
     <div class="twitch-row">
         <label for="pref_oauth_account">[% "PLUGIN_TWITCH_ACCOUNT" | string %]</label>
         <select name="pref_oauth_account" id="pref_oauth_account">
-            <option value="inherit" [% IF prefs.pref_oauth_account == 'inherit' %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_INHERIT" | string %] &ndash; [% twitch_default_name | html %]</option>
-            <option value="none" [% IF prefs.pref_oauth_account == 'none' %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_NO_ACCOUNT" | string %]</option>
+            <option value="inherit" data-connected="[% IF twitch_auth.connected %]1[% ELSE %]0[% END %]" [% IF prefs.pref_oauth_account == 'inherit' %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_INHERIT" | string %] &ndash; [% twitch_default_name | html %]</option>
+            <option value="none" data-connected="0" [% IF prefs.pref_oauth_account == 'none' %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_NO_ACCOUNT" | string %]</option>
             [% FOREACH account IN twitch_accounts %]
-            <option value="[% account.id | html %]" [% IF prefs.pref_oauth_account == account.id %]selected="selected"[% END %]>[% account.display_name | html %] &middot; [% account.status_key | string %]</option>
+            <option value="[% account.id | html %]" data-connected="[% IF account.connected %]1[% ELSE %]0[% END %]" [% IF prefs.pref_oauth_account == account.id %]selected="selected"[% END %]>[% account.display_name | html %] &middot; [% account.status_key | string %]</option>
             [% END %]
         </select>
     </div>
@@ -18,24 +18,26 @@
 [% END %]
 
 [% WRAPPER setting title="PLUGIN_TWITCH_METADATA_SOURCE" desc="PLUGIN_TWITCH_HELIX_METADATA_DESC" %]
-    <select name="pref_metadata_source" id="pref_metadata_source">
-        <option value="inherit" [% IF prefs.pref_metadata_source == 'inherit' %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_INHERIT" | string %] &ndash; [% IF twitch_server_helix %][% "PLUGIN_TWITCH_PREFER_HELIX" | string %][% ELSE %]GraphQL[% END %]</option>
-        <option value="graphql" [% IF prefs.pref_metadata_source == 'graphql' %]selected="selected"[% END %]>GraphQL</option>
-        <option value="helix" [% IF prefs.pref_metadata_source == 'helix' %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_PREFER_HELIX" | string %]</option>
+    <select name="pref_metadata_source" id="pref_metadata_source" data-account-required="1" data-configured="[% prefs.pref_metadata_source | html %]" data-unavailable="graphql" [% IF !twitch_helix_available %]disabled="disabled"[% END %]>
+        <option value="inherit" [% IF twitch_helix_available && prefs.pref_metadata_source == 'inherit' %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_INHERIT" | string %] &ndash; [% IF twitch_server_helix %][% "PLUGIN_TWITCH_PREFER_HELIX" | string %][% ELSE %]GraphQL[% END %]</option>
+        <option value="graphql" [% IF !twitch_helix_available || prefs.pref_metadata_source == 'graphql' %]selected="selected"[% END %]>GraphQL</option>
+        <option value="helix" [% IF twitch_helix_available && prefs.pref_metadata_source == 'helix' %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_PREFER_HELIX" | string %]</option>
     </select>
-    <p class="twitch-note">[% "PLUGIN_TWITCH_EFFECTIVE_SOURCE" | string %]: [% IF twitch_effective_helix %]Helix[% ELSE %]GraphQL[% END %]</p>
-    [% IF !twitch_helix_available %]<p class="twitch-note">[% "PLUGIN_TWITCH_ACCOUNT_NEEDED" | string %]</p>[% END %]
+    <p class="twitch-note">[% "PLUGIN_TWITCH_EFFECTIVE_SOURCE" | string %]: <span data-effective-source="1">[% IF twitch_effective_helix %]Helix[% ELSE %]GraphQL[% END %]</span></p>
+    <p class="twitch-note" data-account-needed="1" [% IF twitch_helix_available %]hidden="hidden"[% END %]>[% "PLUGIN_TWITCH_ACCOUNT_NEEDED" | string %]</p>
 [% END %]
 
 [% WRAPPER setting title="PLUGIN_TWITCH_VISIBLE_MENUS" desc="PLUGIN_TWITCH_VISIBLE_MENUS_DESC" %]
     [% FOREACH menu IN twitch_menus %]
     [% pref_key = 'pref_' _ menu.key %]
-    <div class="twitch-row">
+    [% unavailable = menu.requires_account && !twitch_helix_available %]
+    <div class="twitch-row [% IF unavailable %]twitch-unavailable[% END %]">
         <label for="[% pref_key | html %]">[% menu.title | string %]</label>
-        <select name="[% pref_key | html %]" id="[% pref_key | html %]">
-            <option value="inherit" [% IF prefs.$pref_key == 'inherit' %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_INHERIT" | string %] &ndash; [% IF menu.server_visible %][% "PLUGIN_TWITCH_SHOW" | string %][% ELSE %][% "PLUGIN_TWITCH_HIDE" | string %][% END %]</option>
-            <option value="1" [% IF prefs.$pref_key == 1 %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_SHOW" | string %]</option>
-            <option value="0" [% IF prefs.$pref_key == 0 %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_HIDE" | string %]</option>
+        <select name="[% pref_key | html %]" id="[% pref_key | html %]" [% IF menu.requires_account %]data-account-required="1" data-configured="[% prefs.$pref_key | html %]" data-unavailable="unavailable"[% END %] [% IF unavailable %]disabled="disabled"[% END %]>
+            [% IF menu.requires_account %]<option value="unavailable" disabled="disabled" [% IF unavailable %]selected="selected"[% ELSE %]hidden="hidden"[% END %]>[% "PLUGIN_TWITCH_UNAVAILABLE" | string %]</option>[% END %]
+            <option value="inherit" [% IF !unavailable && prefs.$pref_key == 'inherit' %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_INHERIT" | string %] &ndash; [% IF menu.server_visible %][% "PLUGIN_TWITCH_SHOW" | string %][% ELSE %][% "PLUGIN_TWITCH_HIDE" | string %][% END %]</option>
+            <option value="1" [% IF !unavailable && prefs.$pref_key == 1 %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_SHOW" | string %]</option>
+            <option value="0" [% IF !unavailable && prefs.$pref_key == 0 %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_HIDE" | string %]</option>
         </select>
     </div>
     [% END %]
@@ -48,4 +50,5 @@
     </select>
 [% END %]
 </div>
+[% PROCESS plugins/twitch/settings/availability.html %]
 [% PROCESS settings/footer.html %]

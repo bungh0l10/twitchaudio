@@ -40,27 +40,30 @@
     <div class="twitch-row">
         <label for="pref_oauth_account">[% "PLUGIN_TWITCH_ACCOUNT" | string %]</label>
         <select name="pref_oauth_account" id="pref_oauth_account">
-            <option value="none" [% IF prefs.pref_oauth_account == 'none' %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_NO_ACCOUNT" | string %]</option>
+            <option value="none" data-connected="0" [% IF prefs.pref_oauth_account == 'none' %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_NO_ACCOUNT" | string %]</option>
             [% FOREACH account IN twitch_accounts %]
-            <option value="[% account.id | html %]" [% IF prefs.pref_oauth_account == account.id %]selected="selected"[% END %]>[% account.display_name | html %]</option>
+            <option value="[% account.id | html %]" data-connected="[% IF account.connected %]1[% ELSE %]0[% END %]" [% IF prefs.pref_oauth_account == account.id %]selected="selected"[% END %]>[% account.display_name | html %]</option>
             [% END %]
         </select>
     </div>
-    <div class="twitch-row">
+    <div class="twitch-row [% IF !twitch_helix_available %]twitch-unavailable[% END %]">
         <label for="pref_helix_metadata">[% "PLUGIN_TWITCH_METADATA_SOURCE" | string %]</label>
-        <select name="pref_helix_metadata" id="pref_helix_metadata">
-            <option value="0" [% IF !prefs.pref_helix_metadata %]selected="selected"[% END %]>GraphQL</option>
-            <option value="1" [% IF prefs.pref_helix_metadata %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_PREFER_HELIX" | string %]</option>
+        <select name="pref_helix_metadata" id="pref_helix_metadata" data-account-required="1" data-configured="[% prefs.pref_helix_metadata | html %]" data-unavailable="0" [% IF !twitch_helix_available %]disabled="disabled"[% END %]>
+            <option value="0" [% IF !twitch_effective_helix %]selected="selected"[% END %]>GraphQL</option>
+            <option value="1" [% IF twitch_effective_helix %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_PREFER_HELIX" | string %]</option>
         </select>
     </div>
     <p class="twitch-note">[% "PLUGIN_TWITCH_HELIX_METADATA_DESC" | string %]</p>
+    <p class="twitch-note" data-account-needed="1" [% IF twitch_helix_available %]hidden="hidden"[% END %]>[% "PLUGIN_TWITCH_ACCOUNT_NEEDED" | string %]</p>
     [% FOREACH menu IN twitch_menus %]
     [% pref_key = 'pref_' _ menu.key %]
-    <div class="twitch-row">
+    [% unavailable = menu.requires_account && !twitch_helix_available %]
+    <div class="twitch-row [% IF unavailable %]twitch-unavailable[% END %]">
         <label for="[% pref_key | html %]">[% menu.title | string %]</label>
-        <select name="[% pref_key | html %]" id="[% pref_key | html %]">
-            <option value="1" [% IF prefs.$pref_key == 1 %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_SHOW" | string %]</option>
-            <option value="0" [% IF prefs.$pref_key == 0 %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_HIDE" | string %]</option>
+        <select name="[% pref_key | html %]" id="[% pref_key | html %]" [% IF menu.requires_account %]data-account-required="1" data-configured="[% prefs.$pref_key | html %]" data-unavailable="unavailable"[% END %] [% IF unavailable %]disabled="disabled"[% END %]>
+            [% IF menu.requires_account %]<option value="unavailable" disabled="disabled" [% IF unavailable %]selected="selected"[% ELSE %]hidden="hidden"[% END %]>[% "PLUGIN_TWITCH_UNAVAILABLE" | string %]</option>[% END %]
+            <option value="1" [% IF !unavailable && prefs.$pref_key == 1 %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_SHOW" | string %]</option>
+            <option value="0" [% IF !unavailable && prefs.$pref_key == 0 %]selected="selected"[% END %]>[% "PLUGIN_TWITCH_HIDE" | string %]</option>
         </select>
     </div>
     [% END %]
@@ -74,6 +77,7 @@
     </details>
 [% END %]
 </div>
+[% PROCESS plugins/twitch/settings/availability.html %]
 
 [% IF twitch_polling %]
 <script type="text/javascript">

@@ -287,8 +287,12 @@ PLUGIN_TWITCH_MANAGE_ACCOUNTS
 	EN	Manage accounts and server defaults
 
 PLUGIN_TWITCH_ACCOUNT_NEEDED
-	DE	Für Helix und gefolgte Kanäle wird eine Verbindung zum zugeordneten Konto benötigt. Aktuell wird GraphQL verwendet.
-	EN	Helix and followed channels require the assigned account to be connected. GraphQL is currently used.
+	DE	Ohne verbundenes Konto werden GraphQL und die lokalen Kanäle verwendet. Helix und gefolgte Kanäle werden verfügbar, sobald das ausgewählte Konto verbunden ist.
+	EN	Without a connected account, GraphQL and local channels are used. Helix and followed channels become available once the selected account is connected.
+
+PLUGIN_TWITCH_UNAVAILABLE
+	DE	Nicht verfügbar – Konto erforderlich
+	EN	Unavailable – account required
 
 PLUGIN_TWITCH_VISIBLE_MENUS
 	DE	Sichtbare Menüs

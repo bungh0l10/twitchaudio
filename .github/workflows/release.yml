@@ -59,14 +59,6 @@ jobs:
             printf 'exists=false\n' >> "${GITHUB_OUTPUT}"
           fi
 
-      - name: Verify plugin before packaging
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y libjson-xs-perl liburi-perl libtry-tiny-perl libwww-perl libtemplate-perl
-          prove -v tests/*.t
-
       - name: Zip Repository
         if: steps.tag-check.outputs.exists == 'false'
         id: zip

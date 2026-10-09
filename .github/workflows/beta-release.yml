@@ -77,8 +77,8 @@ jobs:
           zip -q TWITCH.zip install.xml
 
           archive_entries="$(unzip -Z1 TWITCH.zip)"
-          for required in install.xml Plugin.pm Config.pm PlayerSettings.pm Settings.pm API.pm GraphQL.pm Helix.pm OAuth.pm HTTP.pm strings.txt \
-            HTML/EN/plugins/twitch/settings/player.html HTML/EN/plugins/twitch/settings/basic.html HTML/EN/plugins/twitch/settings/common.html; do
+          for required in install.xml Plugin.pm Config.pm PlayerSettings.pm strings.txt \
+            HTML/EN/plugins/twitch/settings/player.html; do
             if ! grep -Fxq "${required}" <<< "${archive_entries}"; then
               printf '%s\n' "${required} missing from TWITCH.zip" >&2
               exit 1

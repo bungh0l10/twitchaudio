@@ -1,5 +1,5 @@
 [% PROCESS settings/header.html %]
-[% PROCESS plugins/twitch/settings/style.html %]
+[% PROCESS plugins/twitch/settings/common.html %]
 <div class="twitch-settings">
 
 [% WRAPPER setting title="PLUGIN_TWITCH_ACCOUNTS" desc="PLUGIN_TWITCH_ACCOUNTS_DESC" %]
@@ -77,7 +77,6 @@
     </details>
 [% END %]
 </div>
-[% PROCESS plugins/twitch/settings/availability.html %]
 
 [% IF twitch_polling %]
 <script type="text/javascript">

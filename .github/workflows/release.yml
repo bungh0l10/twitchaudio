@@ -59,6 +59,14 @@ jobs:
             printf 'exists=false\n' >> "${GITHUB_OUTPUT}"
           fi
 
+      - name: Verify plugin before packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libjson-xs-perl liburi-perl libtry-tiny-perl libwww-perl libtemplate-perl
+          prove -v tests/*.t
+
       - name: Zip Repository
         if: steps.tag-check.outputs.exists == 'false'
         id: zip
@@ -75,8 +83,8 @@ jobs:
 
           archive_entries="$(unzip -Z1 TWITCH.zip)"
 
-          for required in install.xml Plugin.pm Config.pm PlayerSettings.pm strings.txt \
-            HTML/EN/plugins/twitch/settings/player.html; do
+          for required in install.xml Plugin.pm Config.pm PlayerSettings.pm Settings.pm API.pm GraphQL.pm Helix.pm OAuth.pm HTTP.pm strings.txt \
+            HTML/EN/plugins/twitch/settings/player.html HTML/EN/plugins/twitch/settings/basic.html HTML/EN/plugins/twitch/settings/common.html; do
             if ! grep -Fxq "${required}" <<< "${archive_entries}"; then
               printf '%s\n' "${required} missing from TWITCH.zip" >&2
               exit 1

@@ -259,18 +259,29 @@ sub _applyInitialMetadata {
 
     if ($id =~ /^vod:(\d+)$/) {
         my $vod_id = $1;
+        $song->pluginData('twitchVodMetadataId', $vod_id);
 
         my $meta = $cache->get("twitch:vod:$vod_id");
 
         if ($meta) {
             _apply_song_metadata($client, $song, $meta);
+            if ($meta->{category_pending}) {
+                Plugins::Twitch::API::getVodCategory($vod_id, sub {
+                    my ($category) = @_;
+                    return unless ($song->pluginData('twitchVodMetadataId') || '') eq $vod_id;
+                    my $updated = { %$meta, album => $category->{game_name} // '', category_pending => 0 };
+                    $cache->set("twitch:vod:$vod_id", $updated, Plugins::Twitch::Config::cache_ttl());
+                    _apply_song_metadata($client, $song, $updated);
+                });
+            }
             return;
         }
 
         return unless _begin_metadata_refresh($song);
 
-        Plugins::Twitch::API::getVodMeta($vod_id, sub {
+        my $apply = sub {
             my ($vod) = @_;
+            return unless ($song->pluginData('twitchVodMetadataId') || '') eq $vod_id;
 
             _finish_metadata_refresh(
                 $song,
@@ -284,20 +295,22 @@ sub _applyInitialMetadata {
                 artist => $vod->{artist},
                 album  => $vod->{game_name} // '',
                 cover  => $vod->{thumbnail},
+                category_pending => exists $vod->{game_name} ? 0 : 1,
             };
-
-            _apply_song_metadata($client, $song, $meta);
 
             $cache->set(
                 "twitch:vod:$vod_id",
                 $meta,
                 Plugins::Twitch::Config::cache_ttl(),
             );
-        }, $client);
+            _apply_song_metadata($client, $song, $meta);
+        };
+        Plugins::Twitch::API::getVodMeta($vod_id, $apply, $client, $apply);
 
         return;
     }
 
+    $song->pluginData('twitchVodMetadataId', undef);
     my ($type, $channel) = split /:/, $id, 2;
     $channel ||= $id;
 

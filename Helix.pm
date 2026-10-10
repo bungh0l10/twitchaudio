@@ -3,6 +3,7 @@ package Plugins::Twitch::Helix;
 use strict;
 use warnings;
 use URI;
+use Slim::Utils::Cache;
 use Plugins::Twitch::HTTP ();
 use Plugins::Twitch::Config ();
 use Plugins::Twitch::OAuth ();
@@ -47,6 +48,52 @@ sub _get {
     }, $rejected, $account);
 }
 
+# Collect independent requests regardless of response order. Fail immediately
+# and ignore late results so a slow partner cannot delay the GraphQL fallback.
+sub _get_parallel {
+    my ($requests, $callback, $account) = @_;
+    my (%results, $finished);
+    my $remaining = scalar @$requests;
+    for my $request (@$requests) {
+        last if $finished;
+        my ($key, $path, $params) = @$request;
+        _get($path, $params, sub {
+            my ($data, $failure) = @_;
+            return if $finished;
+            if ($failure) {
+                $finished = 1;
+                return $callback->(undef, $failure);
+            }
+            $results{$key} = $data;
+            return if --$remaining;
+            $finished = 1;
+            $callback->(\%results);
+        }, $account);
+    }
+}
+
+sub _remember_user {
+    my ($user) = @_;
+    return unless $user->{login} && ($user->{id} || '') =~ /^\d+$/;
+    Slim::Utils::Cache->new->set('twitch:helix-user-id:' . lc($user->{login}),
+        $user->{id}, Plugins::Twitch::Config::cache_ttl());
+}
+
+sub _user_id {
+    my ($login, $callback, $account) = @_;
+    my $id = Slim::Utils::Cache->new->get('twitch:helix-user-id:' . lc($login));
+    return $callback->($id) if defined $id;
+    _get('users', { login => $login }, sub {
+        my ($users, $error) = @_;
+        return $callback->(undef, $error) if $error;
+        return $callback->() unless @{ $users->{data} };
+        my $user = $users->{data}[0];
+        return $callback->(undef, _invalid()) unless ($user->{id} || '') =~ /^\d+$/;
+        _remember_user({ %$user, login => $login });
+        $callback->($user->{id});
+    }, $account);
+}
+
 sub getChannels {
     my ($logins, $callback, $account) = @_;
     return $callback->({}) unless @$logins;
@@ -64,25 +111,26 @@ sub getChannels {
             }, $account);
         }, $account);
     }
-    _get('users', { login => $logins }, sub {
-        my ($users, $error) = @_;
+    _get_parallel([
+        ['users', 'users', { login => $logins }],
+        ['streams', 'streams', { user_login => $logins, first => 100 }],
+    ], sub {
+        my ($responses, $error) = @_;
         return $callback->(undef, $error) if $error;
-        _get('streams', { user_login => $logins, first => 100 }, sub {
-            my ($streams, $stream_error) = @_;
-            return $callback->(undef, $stream_error) if $stream_error;
-            my %live = map { $_->{user_id} => $_ } @{ $streams->{data} };
-            my %channels = map {
-                my $user = $_;
-                my $stream = $live{$user->{id}};
-                $user->{login} => {
-                    id => $user->{id}, login => $user->{login},
-                    display_name => $user->{display_name}, artwork => $user->{profile_image_url},
-                    is_live => $stream ? 1 : 0, title => $stream ? $stream->{title} : undef,
-                    game_name => $stream ? $stream->{game_name} : undef,
-                }
-            } @{ $users->{data} };
-            $callback->(\%channels);
-        }, $account);
+        my ($users, $streams) = @{$responses}{qw(users streams)};
+        my %live = map { $_->{user_id} => $_ } @{ $streams->{data} };
+        my %channels = map {
+            my $user = $_;
+            _remember_user($user);
+            my $stream = $live{$user->{id}};
+            $user->{login} => {
+                id => $user->{id}, login => $user->{login},
+                display_name => $user->{display_name}, artwork => $user->{profile_image_url},
+                is_live => $stream ? 1 : 0, title => $stream ? $stream->{title} : undef,
+                game_name => $stream ? $stream->{game_name} : undef,
+            }
+        } @{ $users->{data} };
+        $callback->(\%channels);
     }, $account);
 }
 
@@ -121,22 +169,20 @@ sub getVods {
     my ($login, $limit, $callback, $account) = @_;
     $limit = 10 unless $limit && $limit > 0;
     $limit = 100 if $limit > 100;
-    _get('users', { login => $login }, sub {
-        my ($users, $error) = @_;
+    _user_id($login, sub {
+        my ($id, $error) = @_;
         return $callback->(undef, $error) if $error;
-        return $callback->({ highlights => [], archives => [] }) unless @{ $users->{data} };
-        my $id = $users->{data}[0]{id};
-        _get('videos', { user_id => $id, type => 'highlight', sort => 'time', first => $limit }, sub {
-            my ($highlights, $error) = @_;
+        return $callback->({ highlights => [], archives => [] }) unless defined $id;
+        _get_parallel([
+            ['highlights', 'videos', { user_id => $id, type => 'highlight', sort => 'time', first => $limit }],
+            ['archives', 'videos', { user_id => $id, type => 'archive', sort => 'time', first => $limit }],
+        ], sub {
+            my ($responses, $error) = @_;
             return $callback->(undef, $error) if $error;
-            _get('videos', { user_id => $id, type => 'archive', sort => 'time', first => $limit }, sub {
-                my ($archives, $error) = @_;
-                return $callback->(undef, $error) if $error;
-                $callback->({
-                    highlights => [map { _video($_) } @{ $highlights->{data} }],
-                    archives => [map { _video($_) } @{ $archives->{data} }],
-                });
-            }, $account);
+            $callback->({
+                highlights => [map { _video($_) } @{ $responses->{highlights}{data} }],
+                archives => [map { _video($_) } @{ $responses->{archives}{data} }],
+            });
         }, $account);
     }, $account);
 }
@@ -169,12 +215,10 @@ sub getVodPage {
             && ($page->{user_id} || '') =~ /^\d+$/ && $page->{cursor} && !ref $page->{cursor};
         return $fetch->($page->{user_id});
     }
-    _get('users', { login => $login }, sub {
-        my ($users, $error) = @_;
+    _user_id($login, sub {
+        my ($id, $error) = @_;
         return $callback->(undef, $error) if $error;
-        return $callback->({ items => [] }) unless @{ $users->{data} };
-        my $id = $users->{data}[0]{id};
-        return $callback->(undef, _invalid()) unless defined $id && $id =~ /^\d+$/;
+        return $callback->({ items => [] }) unless defined $id;
         $fetch->($id);
     }, $account);
 }

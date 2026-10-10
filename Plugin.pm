@@ -131,9 +131,14 @@ sub _change_saved_channel {
         ? Plugins::Twitch::Config::add_saved_channel($details->{login}, $client)
         : Plugins::Twitch::Config::remove_saved_channel($details->{login}, $client);
 
+    my $message_key = $method eq 'add'
+        ? ($changed ? 'PLUGIN_TWITCH_CHANNEL_ADDED' : 'PLUGIN_TWITCH_CHANNEL_ALREADY_SAVED')
+        : ($changed ? 'PLUGIN_TWITCH_CHANNEL_REMOVED' : 'PLUGIN_TWITCH_CHANNEL_NOT_SAVED');
+
     return {
         changed => $changed ? 1 : 0,
         count   => scalar @{ Plugins::Twitch::Config::saved_channels($client) },
+        message => sprintf(cstring($client, $message_key), $details->{login}),
     };
 }
 
@@ -153,6 +158,13 @@ sub _saved_channel_command {
 
     $request->addResult('changed', $result->{changed});
     $request->addResult('count', $result->{count});
+    $request->addResult('message', $result->{message});
+    # Material uses a single text item as the confirmation for nextWindow.
+    # Without it, the notification falls back to the action's menu label.
+    $request->setResultLoopHash('item_loop', 0, {
+        type => 'text',
+        text => $result->{message},
+    });
     $request->setStatusDone();
 
     return;
@@ -190,14 +202,14 @@ sub _channel_actions_feed {
         $item->{url} = sub {
             my ($action_client, $cb) = @_;
 
-            _change_saved_channel(
+            my $result = _change_saved_channel(
                 $details->{method},
                 $details->{url},
                 $action_client,
             );
             $cb->({
                 items => [{
-                    name => cstring($action_client, 'COMPLETE'),
+                    name => $result->{message},
                     type => 'text',
                 }],
             });

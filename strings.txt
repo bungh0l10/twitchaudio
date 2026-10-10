@@ -74,6 +74,22 @@ PLUGIN_TWITCH_REMOVE_FROM_MY_CHANNELS
 	DE	Aus meinen Kanälen entfernen
 	EN	Remove from my channels
 
+PLUGIN_TWITCH_CHANNEL_ADDED
+	DE	Kanal %s wurde zu meinen Kanälen hinzugefügt.
+	EN	Channel %s was added to my channels.
+
+PLUGIN_TWITCH_CHANNEL_REMOVED
+	DE	Kanal %s wurde aus meinen Kanälen entfernt.
+	EN	Channel %s was removed from my channels.
+
+PLUGIN_TWITCH_CHANNEL_ALREADY_SAVED
+	DE	Kanal %s ist bereits in meinen Kanälen gespeichert.
+	EN	Channel %s is already saved in my channels.
+
+PLUGIN_TWITCH_CHANNEL_NOT_SAVED
+	DE	Kanal %s ist nicht in meinen Kanälen gespeichert.
+	EN	Channel %s is not saved in my channels.
+
 PLUGIN_TWITCH_ACCOUNT
 	DE	Twitch-Konto
 	EN	Twitch account

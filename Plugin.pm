@@ -161,9 +161,12 @@ sub _saved_channel_command {
     $request->addResult('message', $result->{message});
     # Material uses a single text item as the confirmation for nextWindow.
     # Without it, the notification falls back to the action's menu label.
+    # Carry the navigation hint on the confirmation too: Material otherwise
+    # wraps a passive text page in a div before using its title as a message.
     $request->setResultLoopHash('item_loop', 0, {
-        type => 'text',
-        text => $result->{message},
+        type       => 'text',
+        text       => $result->{message},
+        nextWindow => 'parent',
     });
     $request->setStatusDone();
 

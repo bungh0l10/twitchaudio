@@ -185,6 +185,9 @@ sub _channel_actions_feed {
     };
 
     if ($menu_mode) {
+        # Material executes text actions through doTextClick, which consumes
+        # the confirmation with nextWindow instead of opening it as a list.
+        $item->{type} = 'text';
         $item->{isContextMenu} = 1;
         $item->{refresh} = 1;
         $item->{jive} = {

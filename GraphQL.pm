@@ -250,6 +250,7 @@ query($login: String!) {
     user(login: $login) {
         id
         login
+        displayName
         profileImageURL(width: 300)
         stream {
             title
@@ -274,7 +275,7 @@ GRAPHQL
         return $callback->({
             id           => $user->{id},
             login        => $user->{login},
-            display_name => $user->{login},
+            display_name => $user->{displayName} || $user->{login},
             artwork      => $user->{profileImageURL},
             title        => $user->{stream} ? $user->{stream}{title} : undef,
             game_name    => $game ? $game->{name} : undef,
@@ -354,6 +355,7 @@ sub getVods {
         query => <<'GRAPHQL',
 query($login: String!, $limit: Int!) {
     user(login: $login) {
+        displayName
         highlights: videos(
             first: $limit,
             types: HIGHLIGHT,
@@ -407,7 +409,7 @@ GRAPHQL
             $videos{$type} = [map {
                 my $v = $_->{node};
                 +{
-                    id => $v->{id}, title => $v->{title}, artist => $login,
+                    id => $v->{id}, title => $v->{title}, artist => $user->{displayName} || $login,
                     thumbnail => $v->{thumbnailURLs}[0],
                     duration => $v->{lengthSeconds} || 0,
                     created_at => $v->{createdAt},
@@ -489,6 +491,7 @@ query($id: ID!) {
         lengthSeconds
         owner {
             login
+            displayName
         }
         thumbnailURLs(width: 640, height: 360)
     }
@@ -509,7 +512,7 @@ GRAPHQL
                 id        => $vod->{id},
                 title     => $vod->{title},
                 artist    => ref $vod->{owner} eq 'HASH'
-                    ? lc($vod->{owner}{login} // '')
+                    ? ($vod->{owner}{displayName} || $vod->{owner}{login} || '')
                     : '',
                 thumbnail => ref $vod->{thumbnailURLs} eq 'ARRAY'
                     ? ($vod->{thumbnailURLs}[0] // '')

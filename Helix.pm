@@ -104,7 +104,7 @@ sub _video {
     $thumbnail =~ s/%\{width\}/640/g;
     $thumbnail =~ s/%\{height\}/360/g;
     return {
-        id => $v->{id}, title => $v->{title}, artist => $v->{user_login},
+        id => $v->{id}, title => $v->{title}, artist => $v->{user_name} || $v->{user_login},
         thumbnail => $thumbnail, duration => $duration, created_at => $v->{created_at},
     };
 }

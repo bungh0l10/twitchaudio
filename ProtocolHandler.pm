@@ -325,7 +325,7 @@ sub _applyInitialMetadata {
 
         my $u = $data;
         my $title = $u->{title}
-            // ($u->{is_live} ? $u->{login} : cstring($client,
+            // ($u->{is_live} ? ($u->{display_name} || $u->{login}) : cstring($client,
                 defined $u->{is_live} ? 'PLUGIN_TWITCH_OFFLINE' : 'PLUGIN_TWITCH_STATUS_UNKNOWN'));
         my $current = $song->pluginData('wmaMeta');
         my $initial_refresh = !$song->pluginData(
@@ -337,12 +337,13 @@ sub _applyInitialMetadata {
             $meta = {
                 %$current,
                 title => $title,
+                artist => $u->{display_name} || $u->{login},
                 album => $u->{game_name} // '',
             };
         } else {
             $meta = {
                 title  => $title,
-                artist => lc($u->{login}),
+                artist => $u->{display_name} || $u->{login},
                 album  => $u->{game_name} // '',
                 cover  => $u->{artwork},
             };

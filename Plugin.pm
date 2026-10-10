@@ -768,15 +768,16 @@ sub _vodDoesNotExist {
 sub _buildChannelUiItem {
     my ($channel, $context, $client) = @_;
 
+    my $login = lc($channel->{login} // $channel->{artist} // '');
     my $is_saved = grep {
-        $_ eq $channel->{artist}
+        $_ eq $login
     } @{ Plugins::Twitch::Config::saved_channels($client) };
 
     my $action_url = $context && $context eq 'saved_channel'
-        ? 'twitch:live:' . $channel->{artist}
+        ? 'twitch:live:' . $login
         : 'twitch:live-'
             . ($is_saved ? 'saved:' : 'unsaved:')
-            . $channel->{artist};
+            . $login;
 
     my $cover = $channel->{cover};
 
@@ -784,7 +785,7 @@ sub _buildChannelUiItem {
         type            => 'audio',
         favorites_type  => 'audio',
         favorites_url   => $action_url,
-        play            => 'twitch:live:' . $channel->{artist},
+        play            => 'twitch:live:' . $login,
         line1           => $channel->{artist},
         line2           => _list_text($channel->{title}),
         icon            => $cover,
@@ -812,10 +813,13 @@ sub _buildChannelUiItem {
 
 sub _buildChannelData {
     my ($client, $channel) = @_;
+    my $login = lc($channel->{login} // '');
+    my $artist = $channel->{display_name} || $login;
     return {
         %$channel,
-        artist => lc($channel->{login} // ''),
-        title => $channel->{title} // ($channel->{is_live} ? $channel->{login} : cstring($client,
+        login => $login,
+        artist => $artist,
+        title => $channel->{title} // ($channel->{is_live} ? $artist : cstring($client,
             defined $channel->{is_live} ? 'PLUGIN_TWITCH_OFFLINE' : 'PLUGIN_TWITCH_STATUS_UNKNOWN')),
         cover => $channel->{artwork} // '',
     };
@@ -824,12 +828,14 @@ sub _buildChannelData {
 sub _cache_live_metadata {
     my ($channel) = @_;
 
-    return unless $channel && $channel->{artist};
+    return unless $channel;
+    my $login = lc($channel->{login} // $channel->{artist} // '');
+    return unless $login;
 
     my $cache = Slim::Utils::Cache->new;
 
     $cache->set(
-        "twitch:live:$channel->{artist}",
+        "twitch:live:$login",
         {
             title  => $channel->{title},
             artist => $channel->{artist},

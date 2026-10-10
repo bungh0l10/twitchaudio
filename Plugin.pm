@@ -641,7 +641,7 @@ sub _buildChannelListItem {
     my $is_saved = grep { $_ eq $login } @{ Plugins::Twitch::Config::saved_channels($client) };
     my $cover = $channel && $channel->{artwork};
     my $item = {
-        name => $login,
+        name => ($channel && $channel->{display_name}) || $login,
         type => 'link',
         itemActions => {
             info => {
@@ -668,7 +668,10 @@ sub _loadSavedChannelItems {
     for my $login (@$channels) {
         my $cached = $cache->get("twitch:live:$login");
         if (ref $cached eq 'HASH' && $cached->{cover}) {
-            $known{$login} = { artwork => $cached->{cover} };
+            $known{$login} = {
+                display_name => $cached->{artist},
+                artwork => $cached->{cover},
+            };
         } else {
             push @missing, $login;
         }

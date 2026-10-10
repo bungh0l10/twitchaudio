@@ -6,10 +6,10 @@
     [% FOREACH account IN twitch_accounts %]
     <div class="twitch-account">
         <div class="twitch-heading">
-            <strong>[% account.display_name | html %][% IF account.login && account.login != account.display_name %] &middot; [% account.login | html %][% END %]</strong>
+            <strong>[% account.display_name | html %]</strong>
             [% IF account.is_default %]<span class="twitch-badge">[% "PLUGIN_TWITCH_DEFAULT_ACCOUNT" | string %]</span>[% END %]
         </div>
-        <p class="twitch-note">[% account.status_key | string %]</p>
+        [% IF account.login %]<p class="twitch-note">[% account.status_key | string %]</p>[% END %]
         [% IF account.players.size %]<p class="twitch-note">[% "PLUGIN_TWITCH_ASSIGNED_PLAYERS" | string %]: [% account.players.join(', ') | html %]</p>[% END %]
         [% IF account.user_code %]
         <p><a href="[% account.verification_uri | html %]" target="_blank" rel="noopener noreferrer">[% "PLUGIN_TWITCH_AUTHORIZE" | string %]</a></p>
@@ -29,8 +29,6 @@
     [% END %]
     [% IF !twitch_accounts.size %]<p class="twitch-note">[% "PLUGIN_TWITCH_NO_ACCOUNTS" | string %]</p>[% END %]
     <div class="twitch-new-account">
-        <label for="twitch_new_label">[% "PLUGIN_TWITCH_ACCOUNT_LABEL" | string %]</label>
-        <input type="text" name="twitch_new_label" id="twitch_new_label" maxlength="64" autocomplete="off" />
         <button type="submit" name="twitch_add" value="1">[% "PLUGIN_TWITCH_ADD_ACCOUNT" | string %]</button>
     </div>
     <p class="twitch-note">[% "PLUGIN_TWITCH_DELETE_ACCOUNT_DESC" | string %]</p>

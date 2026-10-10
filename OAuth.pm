@@ -39,7 +39,7 @@ sub _save_record {
     my ($id, $session) = @_;
     return unless $accounts{$id};
     my %stored = map {
-        $_ => { label => $accounts{$_}{label}, session => $_ eq $id ? $session : $accounts{$_}{session} }
+        $_ => { session => $_ eq $id ? $session : $accounts{$_}{session} }
     } keys %accounts;
     return _persist({version => 2, accounts => \%stored});
 }
@@ -60,7 +60,7 @@ sub init {
         close $fh;
     }
     my $migrating = ref $stored eq 'HASH' && $stored->{access_token};
-    $stored = {accounts => {default => {label => $stored->{login} || '', session => $stored}}} if $migrating;
+    $stored = {accounts => {default => {session => $stored}}} if $migrating;
     if (ref $stored eq 'HASH' && ref $stored->{accounts} eq 'HASH') {
         for my $id (keys %{ $stored->{accounts} }) {
             next unless $id =~ /^(?:default|a[0-9]+)$/;
@@ -69,7 +69,7 @@ sub init {
             my $session = $record->{session};
             $session = {map { $_ => $session->{$_} } qw(user_id login)}
                 if ($session->{client_id} || '') ne Plugins::Twitch::Config::oauth_client_id();
-            $accounts{$id} = Plugins::Twitch::OAuth::Account->new($id, $record->{label}, $session);
+            $accounts{$id} = Plugins::Twitch::OAuth::Account->new($id, $session);
         }
     }
     if ($migrating && $accounts{default}) {
@@ -96,18 +96,15 @@ sub state {
         : {id => $id, status => 'disconnected', connected => 0, login => '', user_code => '', verification_uri => ''};
 }
 sub accounts {
-    return [map { +{ %{$_->state()}, label => $_->{label},
+    return [map { +{ %{$_->state()},
         players => Plugins::Twitch::Config::account_players($_->{id}) } }
-        sort { ($a->{session}{login} || $a->{label} || $a->{id}) cmp ($b->{session}{login} || $b->{label} || $b->{id}) }
+        sort { ($a->{session}{login} || $a->{id}) cmp ($b->{session}{login} || $b->{id}) }
         values %accounts];
 }
 sub add_account {
-    my ($label) = @_;
-    $label = substr($label || '', 0, 64);
-    $label =~ s/^\s+|\s+$//g;
     my $id;
     do { $id = 'a' . time() . ++$sequence; } while exists $accounts{$id};
-    $accounts{$id} = Plugins::Twitch::OAuth::Account->new($id, $label, {});
+    $accounts{$id} = Plugins::Twitch::OAuth::Account->new($id, {});
     unless (_save_record($id, {})) { delete $accounts{$id}; return; }
     return $id;
 }
@@ -118,7 +115,7 @@ sub delete_account {
     my $a = $accounts{$id};
     $a->disconnect();
     delete $accounts{$id};
-    my %stored = map { $_ => {label => $accounts{$_}{label}, session => $accounts{$_}{session}} } keys %accounts;
+    my %stored = map { $_ => {session => $accounts{$_}{session}} } keys %accounts;
     unless (_persist({version => 2, accounts => \%stored})) {
         $accounts{$id} = $a;
         $a->{status} = 'storage_error';
@@ -134,7 +131,7 @@ sub start {
     unless (defined $id) {
         $id = Plugins::Twitch::Config::account_id();
         $id = 'default' if $id eq 'none';
-        $accounts{$id} ||= Plugins::Twitch::OAuth::Account->new($id, '', {});
+        $accounts{$id} ||= Plugins::Twitch::OAuth::Account->new($id, {});
         _set_initial_default($id);
     }
     return $callback->(undef, _error('Unknown Twitch account')) unless exists_account($id);
@@ -158,9 +155,9 @@ use constant AUTH_URL => 'https://id.twitch.tv/oauth2/';
 use constant SCOPE => 'user:read:follows';
 sub _error { Plugins::Twitch::OAuth::_error(@_) }
 sub new {
-    my ($class, $id, $label, $session) = @_;
+    my ($class, $id, $session) = @_;
     $session->{validated_at} = 0;
-    return bless {id => $id, label => $label || '', session => $session,
+    return bless {id => $id, session => $session,
         instance => Plugins::Twitch::OAuth::_next_instance(), generation => 0, waiters => [], busy => 0, retry_after => 0,
         status => $session->{access_token} ? 'checking' : 'disconnected'}, $class;
 }

@@ -37,8 +37,7 @@ sub handler {
         my ($action, $account) = ($params->{twitch_action} || '') =~ /^(connect|disconnect|delete|default):(default|a[0-9]+)$/;
         if ($params->{twitch_add}) {
             if ($valid && $id) {
-                $account = Plugins::Twitch::OAuth::add_account($params->{twitch_new_label}
-                    || string('PLUGIN_TWITCH_ACCOUNT') . ' ' . (1 + @{ Plugins::Twitch::OAuth::accounts() }));
+                $account = Plugins::Twitch::OAuth::add_account();
                 $action = 'connect' if $account;
                 $params->{warning} = string('PLUGIN_TWITCH_AUTH_STORAGE_ERROR') unless $account;
             } else {
@@ -81,7 +80,7 @@ sub beforeRender {
     for my $a (@$accounts) {
         $a->{status_key} = 'PLUGIN_TWITCH_AUTH_' . uc($a->{status});
         $a->{is_default} = $a->{id} eq $selected;
-        $a->{display_name} = $a->{label} || $a->{login} || string('PLUGIN_TWITCH_ACCOUNT');
+        $a->{display_name} = $a->{login} || string($a->{status_key});
         $params->{twitch_polling} = 1 if $a->{status} =~ /^(pending|checking|starting)$/;
     }
     $params->{twitch_accounts} = $accounts;

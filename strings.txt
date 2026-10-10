@@ -218,10 +218,6 @@ PLUGIN_TWITCH_ADD_ACCOUNT
 	DE	Konto hinzufügen und verbinden
 	EN	Add and connect account
 
-PLUGIN_TWITCH_ACCOUNT_LABEL
-	DE	Bezeichnung (optional)
-	EN	Label (optional)
-
 PLUGIN_TWITCH_RECONNECT
 	DE	Erneut verbinden
 	EN	Reconnect

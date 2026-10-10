@@ -69,7 +69,7 @@ sub _apply_song_metadata {
     my $current = $song->pluginData('wmaMeta');
     if (ref $current eq 'HASH') {
         my $changed = 0;
-        for my $field (qw(title artist cover)) {
+        for my $field (qw(title artist album cover)) {
             my $old = defined $current->{$field} ? $current->{$field} : '';
             my $new = defined $meta->{$field} ? $meta->{$field} : '';
             $changed = 1 if $old ne $new;
@@ -337,11 +337,13 @@ sub _applyInitialMetadata {
             $meta = {
                 %$current,
                 title => $title,
+                album => $u->{game_name} // '',
             };
         } else {
             $meta = {
                 title  => $title,
                 artist => lc($u->{login}),
+                album  => $u->{game_name} // '',
                 cover  => $u->{artwork},
             };
             $song->pluginData('twitchLiveMetadataInitialized', 1);

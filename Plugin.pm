@@ -833,6 +833,7 @@ sub _cache_live_metadata {
         {
             title  => $channel->{title},
             artist => $channel->{artist},
+            album  => $channel->{game_name} // '',
             cover  => $channel->{cover},
         },
         Plugins::Twitch::Config::cache_ttl(),

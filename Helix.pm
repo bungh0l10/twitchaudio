@@ -78,6 +78,7 @@ sub getChannels {
                     id => $user->{id}, login => $user->{login},
                     display_name => $user->{display_name}, artwork => $user->{profile_image_url},
                     is_live => $stream ? 1 : 0, title => $stream ? $stream->{title} : undef,
+                    game_name => $stream ? $stream->{game_name} : undef,
                 }
             } @{ $users->{data} };
             $callback->(\%channels);

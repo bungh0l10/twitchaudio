@@ -254,6 +254,9 @@ query($login: String!) {
         stream {
             title
             viewersCount
+            game {
+                name
+            }
         }
     }
 }
@@ -266,12 +269,15 @@ GRAPHQL
         return $callback->(undef, _error('invalid_response', 'Invalid Twitch channel'))
             unless ref $user eq 'HASH' && $user->{login}
                 && (!defined $user->{stream} || ref $user->{stream} eq 'HASH');
+        my $game = $user->{stream} && ref $user->{stream}{game} eq 'HASH'
+            ? $user->{stream}{game} : undef;
         return $callback->({
             id           => $user->{id},
             login        => $user->{login},
             display_name => $user->{login},
             artwork      => $user->{profileImageURL},
             title        => $user->{stream} ? $user->{stream}{title} : undef,
+            game_name    => $game ? $game->{name} : undef,
             is_live      => $error ? undef : ($user->{stream} ? 1 : 0),
         }, $error);
     });

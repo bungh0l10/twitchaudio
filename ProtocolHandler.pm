@@ -282,6 +282,7 @@ sub _applyInitialMetadata {
             my $meta = {
                 title  => $vod->{title} // 'VOD',
                 artist => $vod->{artist},
+                album  => $vod->{game_name} // '',
                 cover  => $vod->{thumbnail},
             };
 

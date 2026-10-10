@@ -367,6 +367,7 @@ query($login: String!, $limit: Int!) {
                     title
                     createdAt
                     lengthSeconds
+                    game { name }
                     thumbnailURLs(width: 320, height: 180)
                 }
             }
@@ -382,6 +383,7 @@ query($login: String!, $limit: Int!) {
                     title
                     createdAt
                     lengthSeconds
+                    game { name }
                     thumbnailURLs(width: 320, height: 180)
                 }
             }
@@ -413,6 +415,7 @@ GRAPHQL
                     thumbnail => $v->{thumbnailURLs}[0],
                     duration => $v->{lengthSeconds} || 0,
                     created_at => $v->{createdAt},
+                    game_name => ref $v->{game} eq 'HASH' ? $v->{game}{name} : undef,
                 }
             } grep { ref $_ eq 'HASH' && ref $_->{node} eq 'HASH' }
                 @{ $user->{$type}{edges} || [] }];
@@ -489,6 +492,7 @@ query($id: ID!) {
         title
         createdAt
         lengthSeconds
+        game { name }
         owner {
             login
             displayName
@@ -518,6 +522,7 @@ GRAPHQL
                     ? ($vod->{thumbnailURLs}[0] // '')
                     : '',
                 duration  => $vod->{lengthSeconds} || 0,
+                game_name => ref $vod->{game} eq 'HASH' ? $vod->{game}{name} : undef,
             },
             $api_error,
         );

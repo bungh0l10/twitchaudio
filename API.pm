@@ -2,6 +2,7 @@ package Plugins::Twitch::API;
 
 use strict;
 use warnings;
+use Slim::Utils::Cache;
 use Plugins::Twitch::Config ();
 use Plugins::Twitch::GraphQL ();
 use Plugins::Twitch::Helix ();
@@ -122,7 +123,34 @@ sub _metadata {
 
 sub getChannel { _metadata('getChannel', @_); }
 sub getVods { _metadata('getVods', @_); }
-sub getVodMeta { _metadata('getVodMeta', @_); }
+sub getVodMeta {
+    my ($id, $callback, $client) = @_;
+    _metadata('getVodMeta', $id, sub {
+        my ($vod, $error) = @_;
+        return $callback->($vod, $error) unless $vod;
+        my $cache = Slim::Utils::Cache->new;
+        my $key = "twitch:vod-category:$id";
+        if (exists $vod->{game_name}) {
+            $cache->set($key, { game_name => $vod->{game_name} },
+                Plugins::Twitch::Config::cache_ttl()) unless $error;
+            return $callback->($vod, $error);
+        }
+        my $cached = $cache->get($key);
+        return $callback->({ %$vod, game_name => $cached->{game_name} }, $error)
+            if ref $cached eq 'HASH';
+
+        # Helix videos have no category field. Enrich this one VOD anonymously;
+        # lists and their Helix pagination never need a lookup per video.
+        Plugins::Twitch::GraphQL::getVodMeta($id, sub {
+            my ($graphql, $category_error) = @_;
+            my $name = $graphql ? $graphql->{game_name} : undef;
+            $cache->set($key, { game_name => $name },
+                Plugins::Twitch::Config::cache_ttl()) if $graphql && !$category_error;
+            # Category lookup failure must not discard successful Helix data.
+            $callback->({ %$vod, game_name => $name }, $error);
+        });
+    }, $client);
+}
 sub getAudioUrl { Plugins::Twitch::GraphQL::getAudioUrl(@_); }
 sub getVodAudioUrl { Plugins::Twitch::GraphQL::getVodAudioUrl(@_); }
 sub getFollowedChannels {

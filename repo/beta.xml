@@ -1,7 +1,7 @@
 <?xml version='1.0' standalone='yes'?>
 <extensions>
   <plugins>
-    <plugin name="Twitch" version="0.0.3.4.23" minTarget="9.1" maxTarget="*">
+    <plugin name="Twitch" version="0.0.3.4.23" minTarget="9.2" maxTarget="*">
       <url>https://github.com/bungh0l10/twitchaudio/releases/download/0.0.3.4.23-beta/TWITCH.zip</url>
       <sha>3eb23a50448aef39a554934ed22ac8a699433463</sha>
       <title lang="EN">Twitch Beta</title>

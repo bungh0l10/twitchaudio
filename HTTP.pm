@@ -66,13 +66,9 @@ sub _http_error {
     if ($response && $response->code >= 400 && !$args->{twitch_error_body}
         && $error eq $response->status_line) {
         $args->{twitch_error_body} = 1;
+        # Updated LMS 9.2 drains buffered data here and may complete the
+        # request synchronously, including disconnecting the socket.
         $self->read_body($args);
-        # Headers may already have buffered the whole body. Match LMS's normal
-        # body-reading path so no extra socket event is needed in that case.
-        my $socket = $self->socket;
-        my $length = $response->header('Content-Length');
-        Slim::Networking::Async::HTTP::_http_read_body($socket, $self, $args)
-            if $socket->_rbuf_length > 0 || (defined $length && $length eq '0');
         return;
     }
     return $self->SUPER::_http_error($error, $args);

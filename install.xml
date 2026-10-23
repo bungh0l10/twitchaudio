@@ -12,7 +12,7 @@
     <homepageURL>https://github.com/bungh0l10/twitchaudio</homepageURL>
     <targetApplication>
         <id>SqueezeCenter</id>
-        <minVersion>9.1</minVersion>
+        <minVersion>9.2</minVersion>
         <maxVersion>*</maxVersion>
     </targetApplication>
     <type>2</type>

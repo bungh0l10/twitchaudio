@@ -375,7 +375,50 @@ sub _browse_command {
     my $quantity = $request->getParam('_quantity');
     $request->addParam('_quantity', 100)
         if defined $quantity && $quantity =~ /^\d+$/ && $quantity > 100;
-    Slim::Control::XMLBrowser::cliQuery('twitch', \&handleFeed, $request);
+
+    my $feed = \&handleFeed;
+    if (_is_radio_browse($request)) {
+        my $browse = { request => $request, quantity => $quantity };
+        $feed = sub {
+            my ($client, $cb, @args) = @_;
+            handleFeed($client, sub {
+                $cb->(_radio_browse_feed($_[0], $browse));
+            }, @args);
+        };
+    }
+    Slim::Control::XMLBrowser::cliQuery('twitch', $feed, $request);
+}
+
+sub _is_radio_browse {
+    my ($request) = @_;
+    return 0 unless $request->can('source');
+    # Cometd records response|id|priority|connection|User-Agent. Use the
+    # requesting UI, since Material can control the very same Radio player.
+    my (undef, undef, undef, undef, $ua) = split /\|/, ($request->source || ''), 5;
+    return defined $ua && $ua =~ /^SqueezePlay-baby\//i;
+}
+
+# Bind the request to this invocation's menus, including asynchronously built
+# child menus. Keep it out of query/action params, which LMS sends back to UIs.
+# Only the VOD callback uses this context; other menu windows remain bounded.
+sub _radio_browse_feed {
+    my ($feed, $browse) = @_;
+    my $items = ref $feed eq 'HASH' ? $feed->{items} : $feed;
+    return $feed unless ref $items eq 'ARRAY';
+    for my $item (@$items) {
+        next unless ref $item eq 'HASH';
+        _radio_browse_feed($item, $browse) if ref $item->{items} eq 'ARRAY';
+        next unless ref $item->{url} eq 'CODE';
+        my $url = $item->{url};
+        $item->{url} = sub {
+            my ($client, $cb, $args, @passthrough) = @_;
+            $args = { %{ $args || {} }, _twitch_radio_browse => $browse };
+            $url->($client, sub {
+                $cb->(_radio_browse_feed($_[0], $browse));
+            }, $args, @passthrough);
+        };
+    }
+    return $feed;
 }
 
 sub handleFeed {
@@ -530,8 +573,14 @@ sub _buildVodMenuItem {
         url => sub {
             my ($client, $cb, $args) = @_;
 
+            my $radio = $args && $args->{_twitch_radio_browse};
+            # Radio caches fixed 200-item blocks and discards them when count
+            # changes. Complete this VOD category before reporting its total,
+            # then let XMLBrowser slice the original requested window.
+            $radio->{request}->addParam('_quantity', $radio->{quantity})
+                if $radio && defined $radio->{quantity} && $radio->{quantity} =~ /^\d+$/;
             Plugins::Twitch::API::getVodRange($login, $type, $args && $args->{index},
-                $args && $args->{quantity}, sub {
+                $radio ? undef : $args && $args->{quantity}, sub {
                 my ($data, $api_error) = @_;
 
                 my $videos = $data ? $data->{items} : [];

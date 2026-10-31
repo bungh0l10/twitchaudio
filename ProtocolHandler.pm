@@ -69,7 +69,7 @@ sub _apply_song_metadata {
     my $current = $song->pluginData('wmaMeta');
     if (ref $current eq 'HASH') {
         my $changed = 0;
-        for my $field (qw(title artist cover)) {
+        for my $field (qw(title artist album cover)) {
             my $old = defined $current->{$field} ? $current->{$field} : '';
             my $new = defined $meta->{$field} ? $meta->{$field} : '';
             $changed = 1 if $old ne $new;
@@ -259,18 +259,29 @@ sub _applyInitialMetadata {
 
     if ($id =~ /^vod:(\d+)$/) {
         my $vod_id = $1;
+        $song->pluginData('twitchVodMetadataId', $vod_id);
 
         my $meta = $cache->get("twitch:vod:$vod_id");
 
         if ($meta) {
             _apply_song_metadata($client, $song, $meta);
+            if ($meta->{category_pending}) {
+                Plugins::Twitch::API::getVodCategory($vod_id, sub {
+                    my ($category) = @_;
+                    return unless ($song->pluginData('twitchVodMetadataId') || '') eq $vod_id;
+                    my $updated = { %$meta, album => $category->{game_name} // '', category_pending => 0 };
+                    $cache->set("twitch:vod:$vod_id", $updated, Plugins::Twitch::Config::cache_ttl());
+                    _apply_song_metadata($client, $song, $updated);
+                });
+            }
             return;
         }
 
         return unless _begin_metadata_refresh($song);
 
-        Plugins::Twitch::API::getVodMeta($vod_id, sub {
+        my $apply = sub {
             my ($vod) = @_;
+            return unless ($song->pluginData('twitchVodMetadataId') || '') eq $vod_id;
 
             _finish_metadata_refresh(
                 $song,
@@ -282,21 +293,24 @@ sub _applyInitialMetadata {
             my $meta = {
                 title  => $vod->{title} // 'VOD',
                 artist => $vod->{artist},
+                album  => $vod->{game_name} // '',
                 cover  => $vod->{thumbnail},
+                category_pending => exists $vod->{game_name} ? 0 : 1,
             };
-
-            _apply_song_metadata($client, $song, $meta);
 
             $cache->set(
                 "twitch:vod:$vod_id",
                 $meta,
                 Plugins::Twitch::Config::cache_ttl(),
             );
-        });
+            _apply_song_metadata($client, $song, $meta);
+        };
+        Plugins::Twitch::API::getVodMeta($vod_id, $apply, $client, $apply);
 
         return;
     }
 
+    $song->pluginData('twitchVodMetadataId', undef);
     my ($type, $channel) = split /:/, $id, 2;
     $channel ||= $id;
 
@@ -313,19 +327,20 @@ sub _applyInitialMetadata {
     return unless _begin_metadata_refresh($song);
 
     Plugins::Twitch::API::getChannel($channel, sub {
-        my ($data) = @_;
+        my ($data, $error) = @_;
 
-        my $success = $data && $data->{user} ? 1 : 0;
+        my $success = $data && !$error ? 1 : 0;
         _finish_metadata_refresh(
             $song,
             $success,
             Plugins::Twitch::Config::live_cache_ttl(),
         );
-        return unless $data && $data->{user};
+        return unless $data;
 
-        my $u = $data->{user};
-        my $title = $u->{stream}->{title}
-            // cstring($client, 'PLUGIN_TWITCH_OFFLINE');
+        my $u = $data;
+        my $title = $u->{title}
+            // ($u->{is_live} ? ($u->{display_name} || $u->{login}) : cstring($client,
+                defined $u->{is_live} ? 'PLUGIN_TWITCH_OFFLINE' : 'PLUGIN_TWITCH_STATUS_UNKNOWN'));
         my $current = $song->pluginData('wmaMeta');
         my $initial_refresh = !$song->pluginData(
             'twitchLiveMetadataInitialized'
@@ -336,12 +351,15 @@ sub _applyInitialMetadata {
             $meta = {
                 %$current,
                 title => $title,
+                artist => $u->{display_name} || $u->{login},
+                album => $u->{game_name} // '',
             };
         } else {
             $meta = {
                 title  => $title,
-                artist => lc($u->{login}),
-                cover  => $u->{profileImageURL},
+                artist => $u->{display_name} || $u->{login},
+                album  => $u->{game_name} // '',
+                cover  => $u->{artwork},
             };
             $song->pluginData('twitchLiveMetadataInitialized', 1);
         }
@@ -353,7 +371,7 @@ sub _applyInitialMetadata {
             $meta,
             Plugins::Twitch::Config::cache_ttl(),
         );
-    });
+    }, $client);
 
     return;
 }

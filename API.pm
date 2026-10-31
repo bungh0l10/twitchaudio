@@ -2,479 +2,265 @@ package Plugins::Twitch::API;
 
 use strict;
 use warnings;
-
-use JSON::XS qw(encode_json decode_json);
-use URI;
-use Try::Tiny;
-use Slim::Networking::SimpleAsyncHTTP;
-use Slim::Utils::Log qw(logger);
-
+use Slim::Utils::Cache;
 use Plugins::Twitch::Config ();
+use Plugins::Twitch::GraphQL ();
+use Plugins::Twitch::Helix ();
+use Plugins::Twitch::OAuth ();
 
-use constant {
-    HTTP_TIMEOUT => 10,
-    GQL_URL      => 'https://gql.twitch.tv/gql',
-};
+my %vod_lists;
+my %vod_category_requests;
 
-my $log = logger('plugin.twitch');
-
-sub _has_text {
-    my ($value) = @_;
-
-    return defined $value && length $value;
+sub clearVodLists { %vod_lists = (); }
+sub _context_key {
+    my ($client) = @_;
+    return Plugins::Twitch::OAuth::session_key(Plugins::Twitch::Config::account_id($client))
+        . ':' . Plugins::Twitch::Config::helix_metadata($client);
 }
 
-sub _json_bool {
-    my ($value) = @_;
-    return $value ? \1 : \0;
-}
-
-sub _error {
-    my ($type, $message) = @_;
-
-    return {
-        type    => $type,
-        message => $message,
+# XMLBrowser asks for numeric ranges, whereas Helix provides opaque cursors.
+# Retain an ordered prefix so overlapping ranges and playback lookups keep their
+# indices. The cache also survives XMLBrowser rebuilding its coderef menus.
+sub getVodRange {
+    my ($login, $type, $index, $quantity, $callback, $client) = @_;
+    $index ||= 0;
+    my $key = ($client ? ($client->can('id') ? $client->id : "$client") : 'server') . ":$login:$type";
+    my $identity = _context_key($client);
+    for my $old (keys %vod_lists) {
+        delete $vod_lists{$old} if !$vod_lists{$old}{busy}
+            && time() - $vod_lists{$old}{touched} > 3600;
+    }
+    my $state = $vod_lists{$key};
+    $state = undef if $state && $state->{restart} && !$index;
+    if ($state && $state->{identity} ne $identity) {
+        return $callback->({ items => [], more => 0 },
+            { type => 'auth', message => 'Twitch session changed; reopen the video list' }) if $index;
+        $state = undef;
+    }
+    unless ($state) {
+        # Bound idle lists; an in-flight request always retains its own state.
+        my @old = sort { $vod_lists{$a}{touched} <=> $vod_lists{$b}{touched} }
+            grep { !$vod_lists{$_}{busy} } keys %vod_lists;
+        delete $vod_lists{shift @old} while keys(%vod_lists) >= 32 && @old;
+        $state = $vod_lists{$key} = {
+            login => $login, type => $type, identity => $identity, client => $client,
+            items => [], seen => {}, cursors => {}, queue => [],
+        };
+    }
+    $state->{touched} = time();
+    push @{ $state->{queue} }, {
+        end => $quantity ? $index + $quantity : undef, callback => $callback,
     };
+    _pumpVodRange($state);
 }
 
-sub _log_http_failure {
-    my ($method, $url, $status) = @_;
-
-    $log->error(
-        "Twitch HTTP $method failed for $url: "
-            . ($status || 'unknown error')
-    );
-    return;
-}
-
-sub _log_json_failure {
-    my ($error) = @_;
-
-    $log->error("Twitch JSON decode failed: $error");
-    return;
-}
-
-sub _log_graphql_errors {
-    my ($messages) = @_;
-
-    $log->error('Twitch GraphQL error: ' . join('; ', @$messages));
-    return;
-}
-
-sub _log_invalid_graphql_response {
-    my ($label) = @_;
-
-    $log->error("Twitch GraphQL invalid response: $label");
-    return;
-}
-
-sub _log_missing_playback_token {
-    my ($type, $id) = @_;
-
-    $log->error("Twitch missing $type playback token for $id");
-    return;
-}
-
-sub _log_missing_vod_metadata {
-    my ($vod_id) = @_;
-
-    $log->error("Twitch missing VOD metadata for $vod_id");
-    return;
-}
-
-sub _request {
-    my ($method, $url, $headers, $body, $callback) = @_;
-
-    my $http = Slim::Networking::SimpleAsyncHTTP->new(
-        sub {
-            my ($response) = @_;
-            return $callback->($response->content);
-        },
-        sub {
-            my ($response, $error, $http_response) = @_;
-
-            my $status = $http_response ? $http_response->status_line : $error;
-            _log_http_failure($method, $url, $status);
-
-            return $callback->(
-                undef,
-                _error('http', $status || 'unknown error'),
-            );
-        },
-        { timeout => HTTP_TIMEOUT },
-    );
-
-    if ($method eq 'POST') {
-        $http->post($url, %$headers, $body);
-    }
-    else {
-        $http->get($url, %$headers);
-    }
-
-    return;
-}
-
-sub _post_json {
-    my ($payload, $callback) = @_;
-
-    _request(
-        'POST',
-        GQL_URL,
-        {
-            'Client-ID'    => Plugins::Twitch::Config::client_id(),
-            'Content-Type' => 'application/json',
-        },
-        encode_json($payload),
-        sub {
-            my ($content, $request_error) = @_;
-            return $callback->(undef, $request_error) if $request_error;
-            return $callback->(
-                undef,
-                _error('empty_response', 'empty Twitch response'),
-            ) unless $content;
-
-            my $data;
-            my $decode_error;
-
-            try {
-                $data = decode_json($content);
+sub _pumpVodRange {
+    my ($state) = @_;
+    return if $state->{busy};
+    while (my $job = $state->{queue}[0]) {
+        if ($state->{complete} || (defined $job->{end} && @{ $state->{items} } >= $job->{end})) {
+            shift @{ $state->{queue} };
+            $job->{callback}->({ items => [@{ $state->{items} }], more => $state->{complete} ? 0 : 1 });
+            return if $state->{busy};
+            next;
+        }
+        $state->{busy} = 1;
+        getVodPage($state->{login}, $state->{type}, $state->{next_page}, sub {
+            my ($data, $error) = @_;
+            if ($state->{identity} ne _context_key($state->{client})) {
+                $error = { type => 'auth', message => 'Twitch session changed' };
+                $state->{items} = [];
             }
-            catch {
-                $decode_error = "$_";
-                _log_json_failure($_);
-            };
-
-            return $callback->(
-                undef,
-                _error('json', $decode_error || 'invalid Twitch JSON'),
-            ) unless $data;
-
-            my $api_error;
-            if (ref $data eq 'HASH' && ref $data->{errors} eq 'ARRAY') {
-                my @messages = map { $_->{message} // 'unknown GraphQL error' } @{ $data->{errors} };
-                _log_graphql_errors(\@messages);
-                $api_error = _error('graphql', join('; ', @messages));
+            my $cursor = $data && $data->{next_page} ? $data->{next_page}{cursor} : undef;
+            if (!$error && defined $cursor && $state->{cursors}{$cursor}) {
+                $error = { type => 'invalid_response', message => 'Repeated Twitch video cursor' };
             }
-
-            return $callback->($data, $api_error);
-        },
-    );
-
-    return;
-}
-
-sub _graphql_data {
-    my ($payload, $label, $callback) = @_;
-
-    _post_json($payload, sub {
-        my ($data, $api_error) = @_;
-
-        unless (ref $data eq 'HASH' && ref $data->{data} eq 'HASH') {
-            _log_invalid_graphql_response($label) unless $api_error;
-            return $callback->(
-                undef,
-                $api_error || _error(
-                    'invalid_response',
-                    "invalid Twitch GraphQL response: $label",
-                ),
-            );
-        }
-
-        return $callback->($data->{data}, $api_error);
-    });
-
-    return;
-}
-
-sub _build_uri {
-    my ($base, $params) = @_;
-
-    my $uri = URI->new($base);
-    $uri->query_form(%{$params || {}});
-
-    return $uri->as_string;
-}
-
-sub _get_audio_playlist {
-    my ($url, $callback) = @_;
-
-    _request('GET', $url, {}, undef, sub {
-        my ($content, $request_error) = @_;
-        return $callback->(undef, $request_error) if $request_error;
-
-        my $audio_url = _extract_audio_m3u8($content);
-        return $callback->(
-            $audio_url,
-            $audio_url ? undef : _error(
-                'missing_audio_variant',
-                'Twitch audio_only variant is missing',
-            ),
-        );
-    });
-
-    return;
-}
-
-sub _extract_audio_m3u8 {
-    my ($content) = @_;
-
-    return unless $content;
-
-    my @lines = split /\n/, $content;
-    return unless @lines >= 2;
-
-    for my $match (
-        qr/\bSTABLE-VARIANT-ID="audio_only"/i,
-        qr/\baudio_only\b/i,
-    ) {
-        for my $i (0 .. $#lines - 1) {
-            next unless $lines[$i] =~ $match;
-
-            my $uri = $lines[$i + 1] =~ s/\r\z//r;
-            return $uri if $uri =~ m{^https://};
-        }
-    }
-
-    return;
-}
-
-sub getChannel {
-    my ($login, $callback) = @_;
-
-    return $callback->() unless _has_text($login);
-
-    _graphql_data({
-        query => <<'GRAPHQL',
-query($login: String!) {
-    user(login: $login) {
-        id
-        login
-        profileImageURL(width: 300)
-        stream {
-            title
-            viewersCount
-        }
-    }
-}
-GRAPHQL
-        variables => { login => $login },
-    }, "getChannel:$login", $callback);
-
-    return;
-}
-
-sub getAudioUrl {
-    my ($channel, $callback) = @_;
-
-    return $callback->() unless _has_text($channel);
-
-    _graphql_data({
-        operationName => 'PlaybackAccessToken_Template',
-        query => <<'GRAPHQL',
-query PlaybackAccessToken_Template($login: String!, $playerType: String!) {
-    streamPlaybackAccessToken(
-        channelName: $login,
-        params: {
-            platform: "web",
-            playerBackend: "mediaplayer",
-            playerType: $playerType
-        }
-    ) {
-        signature
-        value
-    }
-}
-GRAPHQL
-        variables => {
-            login      => $channel,
-            playerType => 'embed',
-        },
-    }, "getAudioUrl:$channel", sub {
-        my ($root, $api_error) = @_;
-
-        my $token = $root && $root->{streamPlaybackAccessToken};
-        unless ($token && $token->{signature} && $token->{value}) {
-            _log_missing_playback_token('live', $channel)
-                unless $api_error;
-            return $callback->(
-                undef,
-                $api_error || _error(
-                    'missing_playback_token',
-                    "missing live playback token for $channel",
-                ),
-            );
-        }
-
-        my $url = _build_uri(
-            "https://usher.ttvnw.net/api/v2/channel/hls/$channel.m3u8",
-            {
-                sig              => $token->{signature},
-                token            => $token->{value},
-                allow_audio_only => 'true',
-                allow_source     => 'true',
-            },
-        );
-
-        return _get_audio_playlist($url, $callback);
-    });
-
-    return;
-}
-
-sub getVods {
-    my ($login, $limit, $callback) = @_;
-
-    return $callback->() unless _has_text($login);
-
-    $limit ||= 10;
-
-    _graphql_data({
-        query => <<'GRAPHQL',
-query($login: String!, $limit: Int!) {
-    user(login: $login) {
-        highlights: videos(
-            first: $limit,
-            types: HIGHLIGHT,
-            sort: TIME
-        ) {
-            edges {
-                node {
-                    id
-                    title
-                    createdAt
-                    lengthSeconds
-                    thumbnailURLs(width: 320, height: 180)
+            if (!$error) {
+                my @items = grep { $_->{id} && $_->{title} && !$state->{seen}{$_->{id}}++ }
+                    @{ $data && $data->{items} ? $data->{items} : [] };
+                $state->{empty_pages} = @items ? 0 : ($state->{empty_pages} || 0) + 1;
+                $error = { type => 'invalid_response', message => 'Twitch video pages contain no new videos' }
+                    if $cursor && $state->{empty_pages} >= 10;
+                unless ($error) {
+                    push @{ $state->{items} }, @items;
+                    $state->{cursors}{$cursor} = 1 if defined $cursor;
+                    $state->{next_page} = $data->{next_page};
+                    $state->{complete} = !$data->{next_page};
                 }
             }
-        }
-        archives: videos(
-            first: $limit,
-            types: ARCHIVE,
-            sort: TIME
-        ) {
-            edges {
-                node {
-                    id
-                    title
-                    createdAt
-                    lengthSeconds
-                    thumbnailURLs(width: 320, height: 180)
-                }
+            $state->{busy} = 0;
+            if ($error) {
+                $state->{restart} = 1 if $error->{type} eq 'invalid_response'
+                    || ($error->{status} || 0) == 400;
+                # Keep the successful prefix and cursor for a retry. Never mix
+                # anonymous page one into an already-started Helix collection.
+                my @waiting = splice @{ $state->{queue} };
+                $_->{callback}->({ items => [@{ $state->{items} }], more => 0 }, $error) for @waiting;
+                return;
             }
-        }
+            _pumpVodRange($state);
+        }, $state->{client});
+        return;
     }
 }
-GRAPHQL
-        variables => {
-            login => $login,
-            limit => $limit,
-        },
-    }, "getVods:$login", $callback);
 
-    return;
+# Public metadata uses the same data model with either provider. Playback is
+# always anonymous; a Helix OAuth token is not a Twitch playback token.
+sub _metadata {
+    my ($method, @args) = @_;
+    my $client = ref $args[-1] eq 'CODE' ? undef : pop @args;
+    my $callback = pop @args;
+    my $account = Plugins::Twitch::Config::account_id($client);
+    my $graphql = Plugins::Twitch::GraphQL->can($method);
+    return $graphql->(@args, $callback)
+        unless Plugins::Twitch::Config::helix_metadata($client) && Plugins::Twitch::OAuth::connected($account);
+    my $helix = Plugins::Twitch::Helix->can($method);
+    return $helix->(@args, sub {
+        my ($data, $error) = @_;
+        return $graphql->(@args, $callback) if $error;
+        $callback->($data);
+    }, $account);
 }
 
-sub getVodAudioUrl {
-    my ($vod_id, $callback) = @_;
-
-    return $callback->() unless _has_text($vod_id) && $vod_id =~ /^\d+$/;
-
-    _graphql_data({
-        operationName => 'PlaybackAccessToken',
-        extensions => {
-            persistedQuery => {
-                version    => 1,
-                sha256Hash => 'ed230aa1e33e07eebb8928504583da78a5173989fadfb1ac94be06a04f3cdbe9',
-            },
-        },
-        variables => {
-            isLive     => _json_bool(0),
-            isVod      => _json_bool(1),
-            vodID      => $vod_id,
-            login      => '',
-            platform   => 'web',
-            playerType => 'embed',
-        },
-    }, "getVodAudioUrl:$vod_id", sub {
-        my ($root, $api_error) = @_;
-
-        my $token = $root && $root->{videoPlaybackAccessToken};
-        unless ($token && $token->{signature} && $token->{value}) {
-            _log_missing_playback_token('VOD', $vod_id)
-                unless $api_error;
-            return $callback->(
-                undef,
-                $api_error || _error(
-                    'missing_playback_token',
-                    "missing VOD playback token for $vod_id",
-                ),
-            );
-        }
-
-        my $url = _build_uri(
-            "https://usher.ttvnw.net/vod/v2/$vod_id.m3u8",
-            {
-                nauthsig         => $token->{signature},
-                nauth            => $token->{value},
-                allow_audio_only => 'true',
-                allow_source     => 'true',
-            },
-        );
-
-        return _get_audio_playlist($url, $callback);
+sub getChannel { _metadata('getChannel', @_); }
+sub getVods { _metadata('getVods', @_); }
+sub getVodCategory {
+    my ($id, $callback) = @_;
+    my $cache = Slim::Utils::Cache->new;
+    my $key = "twitch:vod-category:$id";
+    my $cached = $cache->get($key);
+    return $callback->($cached) if ref $cached eq 'HASH';
+    if ($vod_category_requests{$id}) {
+        push @{ $vod_category_requests{$id} }, $callback;
+        return;
+    }
+    $vod_category_requests{$id} = [$callback];
+    Plugins::Twitch::GraphQL::getVodMeta($id, sub {
+        my ($vod, $error) = @_;
+        my $category = { game_name => $vod && !$error ? $vod->{game_name} : undef };
+        # Known absence is cached normally; failures get a short backoff.
+        $cache->set($key, $category,
+            $vod && !$error ? Plugins::Twitch::Config::cache_ttl() : 30);
+        my $callbacks = delete $vod_category_requests{$id};
+        $_->($category) for @$callbacks;
     });
-
-    return;
 }
 
+# Deliver available metadata once. A separate optional callback receives the
+# category later, without holding up search results or playback metadata.
 sub getVodMeta {
-    my ($vod_id, $callback) = @_;
-
-    return $callback->() unless _has_text($vod_id);
-
-    _graphql_data({
-        query => <<'GRAPHQL',
-query($id: ID!) {
-    video(id: $id) {
-        id
-        title
-        createdAt
-        lengthSeconds
-        owner {
-            login
+    my ($id, $callback, $client, $category_callback) = @_;
+    _metadata('getVodMeta', $id, sub {
+        my ($vod, $error) = @_;
+        return $callback->($vod, $error) unless $vod;
+        my $cache = Slim::Utils::Cache->new;
+        my $key = "twitch:vod-category:$id";
+        if (exists $vod->{game_name}) {
+            $cache->set($key, { game_name => $vod->{game_name} },
+                Plugins::Twitch::Config::cache_ttl()) unless $error;
+            return $callback->($vod, $error);
         }
-        thumbnailURLs(width: 640, height: 360)
-    }
+        my $cached = $cache->get($key);
+        return $callback->({ %$vod, game_name => $cached->{game_name} }, $error)
+            if ref $cached eq 'HASH';
+
+        $callback->($vod, $error);
+        # Helix videos have no category field. Warm the public category cache
+        # even during a search, and share the request with simultaneous players.
+        getVodCategory($id, sub {
+            my ($category) = @_;
+            $category_callback->({ %$vod, %$category }, $error) if $category_callback;
+        });
+    }, $client);
 }
-GRAPHQL
-        variables => { id => "$vod_id" },
-    }, "getVodMeta:$vod_id", sub {
-        my ($root, $api_error) = @_;
+sub getAudioUrl { Plugins::Twitch::GraphQL::getAudioUrl(@_); }
+sub getVodAudioUrl { Plugins::Twitch::GraphQL::getVodAudioUrl(@_); }
+sub getFollowedChannels {
+    my ($live_only, $cursor, $callback, $client) = @_;
+    my $account = Plugins::Twitch::Config::account_id($client);
+    my $identity = _context_key($client);
+    Plugins::Twitch::Helix::getFollowedChannels($live_only, $cursor, sub {
+        return $callback->(undef, {type => 'auth', message => 'Twitch account selection changed'})
+            if $identity ne _context_key($client);
+        $callback->(@_);
+    }, $account);
+}
 
-        my $vod = $root && $root->{video};
-        unless ($vod) {
-            _log_missing_vod_metadata($vod_id) unless $api_error;
-            return $callback->(undef, $api_error);
+sub getVodPage {
+    my ($login, $type, $page, $callback, $client) = @_;
+    my $account = Plugins::Twitch::Config::account_id($client);
+    my $invalid = { type => 'invalid_response', message => 'Invalid Twitch video page' };
+    return $callback->(undef, $invalid) unless $type eq 'highlights' || $type eq 'archives';
+    if (defined $page) {
+        return $callback->(undef, $invalid) unless ref $page eq 'HASH'
+            && ($page->{provider} || '') eq 'helix'
+            && ($page->{login} || '') eq $login && ($page->{type} || '') eq $type
+            && (!exists $page->{account_id} || $page->{account_id} eq $account);
+        return $callback->(undef, {type => 'auth', message => 'Twitch session changed'})
+            if exists $page->{session_key} && $page->{session_key} ne Plugins::Twitch::OAuth::session_key($account);
+    }
+    my $anonymous = sub {
+        Plugins::Twitch::GraphQL::getVods($login, 100, sub {
+            my ($data, $error) = @_;
+            $callback->($data ? { items => $data->{$type} || [] } : undef, $error);
+        });
+    };
+    return $anonymous->() unless defined $page
+        || (Plugins::Twitch::Config::helix_metadata($client) && Plugins::Twitch::OAuth::connected($account));
+    Plugins::Twitch::Helix::getVodPage($login, $type, $page, sub {
+        my ($data, $error) = @_;
+        # Only the first page can fall back. A Helix cursor cannot be applied to
+        # GraphQL, and restarting anonymously would silently repeat page one.
+        return $anonymous->() if $error && !defined $page;
+        if ($data && $data->{next_page}) {
+            $data->{next_page} = {
+                %{ $data->{next_page} }, provider => 'helix', login => $login, type => $type, account_id => $account,
+                session_key => Plugins::Twitch::OAuth::session_key($account),
+            };
         }
+        $callback->($data, $error);
+    }, $account);
+}
 
-        return $callback->(
-            {
-                id        => $vod->{id},
-                title     => $vod->{title},
-                artist    => ref $vod->{owner} eq 'HASH'
-                    ? lc($vod->{owner}{login} // '')
-                    : '',
-                thumbnail => ref $vod->{thumbnailURLs} eq 'ARRAY'
-                    ? ($vod->{thumbnailURLs}[0] // '')
-                    : '',
-                duration  => $vod->{lengthSeconds} || 0,
-            },
-            $api_error,
-        );
-    });
-
-    return;
+# Batch the Helix lookup, but bound concurrency for the anonymous provider.
+# Missing or failed channels remain absent; callers must not infer "offline".
+sub getChannels {
+    my ($logins, $callback, $client) = @_;
+    my $account = Plugins::Twitch::Config::account_id($client);
+    return $callback->({}) unless @$logins;
+    my $anonymous = sub {
+        my %channels;
+        my @queue = @$logins;
+        my $active = 0;
+        my $last_error;
+        my $pump;
+        $pump = sub {
+            while ($active < 4 && @queue) {
+                my $login = shift @queue;
+                ++$active;
+                Plugins::Twitch::GraphQL::getChannel($login, sub {
+                    my ($channel, $error) = @_;
+                    $channels{$login} = $channel if $channel;
+                    $last_error = $error if $error;
+                    --$active;
+                    if (!@queue && !$active) {
+                        my $done = $callback;
+                        undef $pump;
+                        return $done->(\%channels, $last_error);
+                    }
+                    $pump->() if $pump;
+                });
+            }
+        };
+        $pump->();
+    };
+    return $anonymous->() unless Plugins::Twitch::Config::helix_metadata($client)
+        && Plugins::Twitch::OAuth::connected($account);
+    Plugins::Twitch::Helix::getChannels($logins, sub {
+        my ($channels, $error) = @_;
+        return $anonymous->() if $error;
+        $callback->($channels);
+    }, $account);
 }
 
 1;

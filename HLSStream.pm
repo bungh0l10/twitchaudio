@@ -308,6 +308,7 @@ sub getMetadataFor {
     return {
         title        => $meta->{title},
         artist       => $meta->{artist},
+        album        => $meta->{album} // '',
         cover        => $meta->{cover},
         icon         => $meta->{cover},
         duration     => $is_vod && $song ? ($song->duration || undef) : undef,

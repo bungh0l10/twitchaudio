@@ -12,6 +12,7 @@ use Slim::Utils::Strings qw(cstring string);
 use Slim::Utils::Cache;
 
 use Plugins::Twitch::API;
+use Plugins::Twitch::Artwork ();
 use Plugins::Twitch::Config ();
 use Plugins::Twitch::OAuth ();
 use Plugins::Twitch::HLSStream ();
@@ -326,6 +327,7 @@ sub initPlugin {
 
     Plugins::Twitch::Config::init();
     Plugins::Twitch::OAuth::init();
+    Plugins::Twitch::Artwork::init();
 
     if (main::WEBUI()) {
         require Plugins::Twitch::Settings;

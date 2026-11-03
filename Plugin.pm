@@ -12,7 +12,6 @@ use Slim::Utils::Strings qw(cstring string);
 use Slim::Utils::Cache;
 
 use Plugins::Twitch::API;
-use Plugins::Twitch::Artwork ();
 use Plugins::Twitch::Config ();
 use Plugins::Twitch::OAuth ();
 use Plugins::Twitch::HLSStream ();
@@ -327,7 +326,6 @@ sub initPlugin {
 
     Plugins::Twitch::Config::init();
     Plugins::Twitch::OAuth::init();
-    Plugins::Twitch::Artwork::init();
 
     if (main::WEBUI()) {
         require Plugins::Twitch::Settings;
@@ -563,7 +561,7 @@ sub _vod_items {
 sub _buildVodMenuItem {
     my ($login, $channel, $title, $type, $context) = @_;
 
-    my $cover = Plugins::Twitch::Artwork::metadata_url($channel->{cover});
+    my $cover = $channel->{cover};
 
     return {
         name  => $title,
@@ -690,7 +688,7 @@ sub _list_text {
 sub _buildChannelListItem {
     my ($client, $login, $channel) = @_;
     my $is_saved = grep { $_ eq $login } @{ Plugins::Twitch::Config::saved_channels($client) };
-    my $cover = Plugins::Twitch::Artwork::metadata_url($channel && $channel->{artwork});
+    my $cover = $channel && $channel->{artwork};
     my $item = {
         name => ($channel && $channel->{display_name}) || $login,
         type => 'link',
@@ -833,7 +831,7 @@ sub _buildChannelUiItem {
             . ($is_saved ? 'saved:' : 'unsaved:')
             . $login;
 
-    my $cover = Plugins::Twitch::Artwork::metadata_url($channel->{cover});
+    my $cover = $channel->{cover};
 
     my $item = {
         type            => 'audio',
@@ -875,7 +873,7 @@ sub _buildChannelData {
         artist => $artist,
         title => $channel->{title} // ($channel->{is_live} ? $artist : cstring($client,
             defined $channel->{is_live} ? 'PLUGIN_TWITCH_OFFLINE' : 'PLUGIN_TWITCH_STATUS_UNKNOWN')),
-        cover => Plugins::Twitch::Artwork::metadata_url($channel->{artwork}) // '',
+        cover => $channel->{artwork} // '',
     };
 }
 

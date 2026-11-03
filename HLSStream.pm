@@ -20,6 +20,7 @@ use Time::HiRes qw(time);
 
 use Plugins::Twitch::Config ();
 use Plugins::Twitch::API ();
+use Plugins::Twitch::Artwork ();
 use Plugins::Twitch::HLS::Session ();
 use Plugins::Twitch::HLS::URL ();
 
@@ -305,12 +306,15 @@ sub getMetadataFor {
     my $sample_rate = ref $audio_info eq 'HASH'
         ? $audio_info->{sample_rate}
         : undef;
+    # Normalize cached/song-attached 300px covers too. ImageProxy checks its
+    # cache before calling our handler, so Now Playing needs the fresh 600px URL.
+    my $cover = Plugins::Twitch::Artwork::metadata_url($meta->{cover});
     return {
         title        => $meta->{title},
         artist       => $meta->{artist},
         album        => $meta->{album} // '',
-        cover        => $meta->{cover},
-        icon         => $meta->{cover},
+        cover        => $cover,
+        icon         => $cover,
         duration     => $is_vod && $song ? ($song->duration || undef) : undef,
         samplerate   => $sample_rate,
         type         => 'aac',

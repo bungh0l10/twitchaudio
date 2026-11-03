@@ -251,7 +251,7 @@ query($login: String!) {
         id
         login
         displayName
-        profileImageURL(width: 300)
+        profileImageURL(width: 600)
         stream {
             title
             viewersCount

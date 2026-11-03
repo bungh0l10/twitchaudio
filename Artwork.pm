@@ -6,8 +6,9 @@ use warnings;
 use Slim::Web::Graphics ();
 use Slim::Web::ImageProxy ();
 
-# Keep the public metadata URLs intact. Material and SqueezePlay already route
-# them through LMS's image proxy, which supplies the actual display size here.
+# Use one full-size profile URL in menus and playback metadata. Its new cache
+# identity also avoids ImageProxy/browser results made from the old 300px source.
+# Material and SqueezePlay still request their display size through ImageProxy.
 my $profile_url = qr{^(https?://static-cdn\.jtvnw\.net/(?:jtv_user_pictures|user-default-pictures-uv)/[^/?#]*profile_image[^/?#]*-)(\d+)x(\d+)(\.(?:png|jpe?g|gif)(?:[?#].*)?)$}i;
 my $vod_url = qr{^(https?://static-cdn\.jtvnw\.net/cf_vods/[^?#]+/thumb/[^/?#]+-)(\d+)x(\d+)(\.(?:png|jpe?g)(?:[?#].*)?)$}i;
 
@@ -20,16 +21,25 @@ sub init {
     }
 }
 
+sub metadata_url {
+    my ($url) = @_;
+    return $url unless defined $url && $url =~ $profile_url;
+    my ($prefix, $width, $height, $suffix) = ($1, $2, $3, $4);
+    return $url unless $width > 0 && $width == $height;
+    return $prefix . '600x600' . $suffix;
+}
+
 sub url_for_size {
     my ($url, $spec) = @_;
     return $url unless defined $url;
 
     my ($width, $height, $mode) = Slim::Web::Graphics->parseSpec($spec || '');
-    # LMS permits X for an unconstrained dimension. Requests without a numeric
-    # size (including image.jpg) retain the provider's original image.
+    # LMS permits X for an unconstrained dimension. Material's gallery removes
+    # the size altogether: it should receive the full profile, not the old 300px
+    # source. metadata_url leaves VOD URLs and their aspect ratio untouched.
     $width = undef unless defined $width && $width =~ /^[1-9]\d*$/;
     $height = undef unless defined $height && $height =~ /^[1-9]\d*$/;
-    return $url unless $width || $height;
+    return metadata_url($url) unless $width || $height;
 
     if ($url =~ $profile_url) {
         my ($prefix, $original_width, $original_height, $suffix) = ($1, $2, $3, $4);

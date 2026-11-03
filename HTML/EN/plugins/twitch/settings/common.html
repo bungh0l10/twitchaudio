@@ -28,7 +28,7 @@
         var controls = document.querySelectorAll('[data-account-required]');
         var notes = document.querySelectorAll('[data-account-needed]');
         var source = document.getElementById('pref_metadata_source');
-        var inheritedHelix = [% IF twitch_server_helix %]true[% ELSE %]false[% END %];
+        var inheritedHelix = '[% IF twitch_server_helix %]true[% ELSE %]false[% END %]' === 'true';
         var sourceStatus = document.querySelector('[data-effective-source]');
         function updateSource() {
             if (sourceStatus && source) {
